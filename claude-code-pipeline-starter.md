@@ -1,4 +1,4 @@
-# Claude Code Autonomous Pipeline — Complete Starter Kit (v2, with Debug Instrumentation)
+# Claude Code Autonomous Pipeline — Complete Starter Kit (v3, aligned to 2.1.158 / Opus 4.8)
 
 A full software-development-lifecycle pipeline built on Claude Code agents, hooks, skills, and MCP servers, with debug instrumentation built in. Drop the file tree below into a project's `.claude/` directory, fill in the credentials, and you have a setup that takes a Jira ticket and turns it into a reviewed, tested, documented, deploy-ready change — with you in the loop only at the points where judgment is genuinely required, and with audit logs that explain every failure when it happens.
 
@@ -9,6 +9,13 @@ A full software-development-lifecycle pipeline built on Claude Code agents, hook
 - `test_gate.sh` now writes test history to `.claude/.test-history.jsonl` so the report-generator can include trends
 - `settings.json` wires all instrumentation in cleanly
 - A new section explaining how to read the logs
+
+**What's new in v3 (aligned to Claude Code 2.1.158, May 2026):**
+- Stop/SubagentStop gates note the runtime 8-block safety net (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`) layered behind the `stop_hook_active` guard
+- `worktree.baseRef: "head"` set in `settings.json` so worktree-isolated agents (bug-investigator, cve-remediator) see your unpushed commits
+- `notify.sh` modernized to emit a `terminalSequence` so notifications work from background/headless sessions
+- Optional auto-mode block (`CLAUDE_CODE_ENABLE_AUTO_MODE=1`) documented for Bedrock/Vertex/Foundry autonomy on Opus 4.7/4.8
+- `startup_check.py` self-check updated for current versions and the later AskUserQuestion fixes
 
 ---
 
@@ -154,6 +161,8 @@ Both are gitignored. To inspect a recent issue: `tail -50 .claude/audit.log`.
 
 OAuth happens on first use of each. Use `/mcp` inside Claude Code to complete the flow. For headless/CI, Atlassian supports API token auth — see Atlassian Rovo MCP docs and pin secrets to env vars referenced via `${VAR}` in this file.
 
+**On the `worktree.baseRef: "head"` key (2.1.133+):** by default Claude Code branches isolation worktrees from `origin/<default>`, so the bug-investigator and cve-remediator agents would *not* see your unpushed local commits. Setting `head` branches from your local `HEAD` instead, which is what you want when you're asking an agent to investigate work you haven't pushed yet. Drop this key (or set `"fresh"`) if you specifically want agents to start from a clean pushed baseline.
+
 ---
 
 ## .claude/settings.json (project, committed) — updated with debug instrumentation
@@ -162,6 +171,9 @@ OAuth happens on first use of each. Use `/mcp` inside Claude Code to complete th
 {
   "autoMemoryEnabled": true,
   "skillListingBudgetFraction": 0.02,
+  "worktree": {
+    "baseRef": "head"
+  },
   "hooks": {
     "SessionStart": [
       {
@@ -543,20 +555,55 @@ def main() -> None:
             )
 
     # --- Version sanity ---
-    # AskUserQuestion regression in 2.1.104 — warn if version is exactly that
+    # Parse the CLI version and flag known-relevant thresholds. This is the
+    # spot to keep current as Claude Code moves; thresholds below are the ones
+    # that affect this pipeline's behavior.
     try:
+        import re
         import subprocess
-        v = subprocess.check_output(["claude", "--version"], text=True).strip()
-        if "2.1.104" in v:
-            warnings.append(
-                "Claude Code 2.1.104 has a known AskUserQuestion regression "
-                "with plugin skills + bypassPermissions. Pin 2.1.101 or "
-                "upgrade past the fix."
-            )
-        else:
-            info.append(f"Claude Code version: {v}")
+        raw = subprocess.check_output(["claude", "--version"], text=True).strip()
+        info.append(f"Claude Code version: {raw}")
+
+        m = re.search(r"(\d+)\.(\d+)\.(\d+)", raw)
+        if m:
+            ver = tuple(int(x) for x in m.groups())
+
+            # 2.1.104: AskUserQuestion regression with plugin skills +
+            # bypassPermissions. The multi-select-array fix landed in 2.1.136
+            # and the auto-mode-suppression fix in 2.1.147.
+            if ver == (2, 1, 104):
+                warnings.append(
+                    "Claude Code 2.1.104 has the AskUserQuestion regression "
+                    "(plugin skills + bypassPermissions). Upgrade past 2.1.147."
+                )
+
+            # This kit assumes the hook/skill/MCP features documented for the
+            # 2.1.139–2.1.158 window (MessageDisplay, reloadSkills, worktree
+            # baseRef, Stop-hook block cap, auto mode on Bedrock, etc.).
+            if ver < (2, 1, 147):
+                warnings.append(
+                    f"Claude Code {raw} predates several features this kit "
+                    "relies on (AskUserQuestion fixes, worktree.baseRef, the "
+                    "Stop-hook block cap). Upgrade to 2.1.147+ (ideally 2.1.158+)."
+                )
+            elif ver < (2, 1, 154):
+                info.append(
+                    "On 2.1.154+ you also get Opus 4.8 defaults and dynamic "
+                    "workflows (/workflows) — consider upgrading."
+                )
     except Exception:
         pass  # Version check is best-effort
+
+    # --- Auto mode awareness (Bedrock/Vertex/Foundry, 2.1.158+) ---
+    # Surface whether unattended auto mode is actually enabled, so an overnight
+    # run doesn't silently fall back to interactive permission prompts.
+    if os.environ.get("CLAUDE_CODE_ENABLE_AUTO_MODE") == "1":
+        info.append("Auto mode is enabled (CLAUDE_CODE_ENABLE_AUTO_MODE=1).")
+    else:
+        info.append(
+            "Auto mode is OFF. For unattended Bedrock/Vertex/Foundry runs on "
+            "Opus 4.7/4.8, set CLAUDE_CODE_ENABLE_AUTO_MODE=1."
+        )
 
     # --- Quick stats for context ---
     agents_dir = claude_dir / "agents"
@@ -607,6 +654,9 @@ set -euo pipefail
 INPUT=$(cat)
 
 # CRITICAL: anti-loop guard. Always check this first.
+# (As of 2.1.143 the runtime also caps consecutive Stop-hook blocks at 8 —
+#  tunable via CLAUDE_CODE_STOP_HOOK_BLOCK_CAP — but that's a backstop, not a
+#  substitute. A gate that ever blocks 8x in a row is still a bug to fix here.)
 if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
   exit 0
 fi
@@ -908,22 +958,46 @@ exit 0
 
 ```bash
 #!/usr/bin/env bash
-# OS notification when Claude needs input. Adapt per platform.
+# OS notification when Claude needs input.
+#
+# v3 (2.1.141+): the preferred path is to return a `terminalSequence` in the
+# hook's JSON output. Claude Code emits it for us — a bell + window-title
+# update + OSC desktop notification — and crucially this works from
+# background and headless sessions where the shell-out fallbacks below run
+# without a controlling terminal and silently do nothing. We keep the
+# shell-outs as a fallback for environments/terminals that don't surface the
+# OSC sequence, but the terminalSequence is what makes notifications reliable
+# in `claude agents` / `--bg` runs.
 
+set -euo pipefail
+
+TITLE="Claude Code"
+MSG="Input needed"
+
+# BEL (audible) + OSC 9 desktop notification + OSC 0 window-title update.
+# \u0007 = BEL, \u001b]9;...\u0007 = notification, \u001b]0;...\u0007 = title.
+TERMSEQ=$(printf '\007\033]9;%s: %s\007\033]0;%s — %s\007' "$TITLE" "$MSG" "$TITLE" "$MSG")
+
+# Emit the sequence for Claude Code to render (works headless/background).
+jq -nc --arg seq "$TERMSEQ" '{terminalSequence: $seq}'
+
+# Best-effort native fallbacks (no-ops when detached from a desktop session).
 if command -v powershell.exe >/dev/null 2>&1; then
-  powershell.exe -NoProfile -Command "New-BurntToastNotification -Text 'Claude Code', 'Input needed'" 2>/dev/null &
+  powershell.exe -NoProfile -Command "New-BurntToastNotification -Text '$TITLE', '$MSG'" 2>/dev/null &
 fi
 
 if command -v terminal-notifier >/dev/null 2>&1; then
-  terminal-notifier -title 'Claude Code' -message 'Input needed' -sound Ping &
+  terminal-notifier -title "$TITLE" -message "$MSG" -sound Ping 2>/dev/null &
 fi
 
 if command -v notify-send >/dev/null 2>&1; then
-  notify-send 'Claude Code' 'Input needed' &
+  notify-send "$TITLE" "$MSG" 2>/dev/null &
 fi
 
 exit 0
 ```
+
+Because this hook now prints JSON to stdout, keep it on the `Notification` event (where stdout isn't injected into Claude's context). The `terminalSequence` field is consumed by Claude Code directly, so it reaches you even when the session is backgrounded and the `notify-send`/`terminal-notifier` shell-outs have no desktop to talk to.
 
 ---
 

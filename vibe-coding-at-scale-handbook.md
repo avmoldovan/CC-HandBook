@@ -34,6 +34,8 @@ Out of scope: prompt engineering inside a single message; programming the Claude
 
 Claude Code changes fast. Features that were experimental six months ago are stable now; features stable today may be deprecated in a year. Where exact version-dependent behavior matters, the book calls it out and gives you the inspection command to verify your version. Where the conceptual model has been stable, the book just states it. The mental model and architectural patterns are durable even when specific commands rename themselves.
 
+This edition is current to **Claude Code 2.1.158 (May 30, 2026)** and assumes **Claude Opus 4.8** as the working model. Changes that landed between 2.1.132 and 2.1.158 are folded into the relevant chapters and collected, with version numbers, in **Appendix F — Release Delta**. If you're reading this much later, run `claude --version` and skim Appendix F first to see which specifics have moved.
+
 ---
 
 # Table of Contents
@@ -103,6 +105,7 @@ Claude Code changes fast. Features that were experimental six months ago are sta
 - [Appendix C. Frontmatter Field Reference](#appendix-c-frontmatter-field-reference)
 - [Appendix D. The Companion Starter Kit](#appendix-d-the-companion-starter-kit)
 - [Appendix E. Further Reading](#appendix-e-further-reading)
+- [Appendix F. Release Delta — Changes Since 2.1.132](#appendix-f-release-delta--changes-since-2-1-132)
 
 ---
 
@@ -445,6 +448,20 @@ A concrete CLAUDE.md routing block that solves the auto-selection problem:
 
 That single block does what 200 lines of inline instructions used to do — because each skill carries its full procedure in its own SKILL.md, the routing rule just has to be specific enough that Claude picks the right one.
 
+### Newer skill controls (2.1.x)
+
+A few capabilities have been added to the skill surface since this chapter's core was written:
+
+**`disallowed-tools` in frontmatter** (2.1.152): skills *and* slash commands can now list tools to *remove* from the model while the skill is active, the inverse of `allowed-tools`. This is the clean way to sandbox a skill — e.g. a `summarize-incident` skill that should read and write but never run Bash or call a deploy MCP tool. It composes with `allowed-tools`: allow the narrow set you need, disallow the dangerous ones explicitly.
+
+**`/reload-skills` and SessionStart `reloadSkills`** (2.1.152): you no longer have to restart the session to pick up a newly added or edited skill. Type `/reload-skills` interactively, or have a SessionStart hook return `reloadSkills: true` so a hook that *installs* skills makes them available in the same session. This matters for the bootstrap pattern where a SessionStart hook pulls the team plugin and you want its skills live immediately.
+
+**`${CLAUDE_EFFORT}` in skill bodies** (2.1.120) and `effort:` frontmatter: a skill can read the active effort level in its content and branch on it, and skill/agent `effort:` frontmatter can pin the effort for that unit of work. Combined with the hook-side `$CLAUDE_EFFORT` (Chapter 13), effort is now a first-class signal you can thread through the whole pipeline.
+
+**`skillOverrides` setting** (working as of 2.1.129): controls visibility per skill — `off` hides it from both the model and `/`, `user-invocable-only` hides it from the model (so it only runs when you type it), and `name-only` collapses the description to just the name to save listing budget. Use `name-only` to keep a large skill catalog discoverable without paying full description cost for every entry.
+
+One reliability fix worth knowing if you run subagents: through 2.1.132, subagents sometimes failed to discover project/user/plugin skills via the Skill tool; that was fixed in 2.1.133. If you saw "subagent can't find the skill that the main session can," upgrading past 2.1.133 resolves it.
+
 ---
 
 ## Chapter 9. The Skill-Creator Workflow
@@ -479,7 +496,7 @@ A practical command sequence:
   → confirm the improvement is real
 ```
 
-One caveat: AskUserQuestion had a regression in some 2026 versions (2.1.104) where it auto-completes with empty answers when invoked from inside plugin skills with `defaultMode: "bypassPermissions"`. Worth checking your version with `claude --version` and pinning if you've automated heavily around AskUserQuestion-driven skills.
+One caveat: AskUserQuestion had a regression in some 2026 versions (2.1.104) where it auto-completes with empty answers when invoked from inside plugin skills with `defaultMode: "bypassPermissions"`. Two related fixes have since landed: 2.1.136 fixed AskUserQuestion discarding multi-select answers supplied as an array, and 2.1.147 fixed auto mode suppressing AskUserQuestion when a user or skill explicitly relies on it. If you've automated heavily around AskUserQuestion-driven skills, check `claude --version` and upgrade past 2.1.147; pin only if you're stuck on an older build.
 
 ---
 
@@ -584,6 +601,20 @@ claude mcp add filesystem --scope user \
 
 For multi-account setups, separate MCP servers per account at user scope avoids the OAuth juggling — `github-personal`, `github-work`, each with its own token, scoped narrowly. Inside a session, `/mcp` shows server status and handles OAuth. `claude mcp list` shows configuration; `claude mcp doctor` diagnoses connection problems.
 
+### Newer MCP capabilities (2.1.x)
+
+A handful of changes since 2.1.121 are worth folding into how you configure servers:
+
+**`alwaysLoad`** (2.1.121): set `"alwaysLoad": true` on a server in its config and *all* of that server's tools skip Tool Search deferral and are always present in context. Normally deferral is what you want — it's the 95%-context-saving default — but for a small, hot server whose tools you call constantly (a custom project server with three tools), `alwaysLoad` removes the discovery round-trip. Reserve it for low-tool-count servers; turning it on for a 60-tool server defeats the purpose of deferral.
+
+**`CLAUDE_PROJECT_DIR`, `CLAUDE_CODE_SESSION_ID`, and `CLAUDECODE=1` in the MCP environment** (2.1.139 and 2.1.154): stdio MCP server subprocesses now receive these, matching what hooks already got. Plugin MCP configs can reference `${CLAUDE_PROJECT_DIR}` in their `command`/`args`, which finally makes project-relative local servers portable. The session id lets a server correlate its own logs with the audit log from Chapter 36.
+
+**`MCP_TOOL_TIMEOUT` now actually raises the per-request ceiling** (fixed 2.1.142): before, remote HTTP/SSE tool calls were capped at 60 seconds regardless of the configured value. If you have a long-running MCP tool (a report build, a slow query) that was mysteriously dying at one minute, set `MCP_TOOL_TIMEOUT` and upgrade past 2.1.142.
+
+**Paginated `tools/list` is fully consumed** (fixed 2.1.144): servers that returned tools across multiple pages previously had everything past page one silently dropped. If a server's tool was "defined but never callable," this was often why.
+
+Two operational notes: `/mcp` Reconnect now picks up `.mcp.json` edits without a full restart (2.1.139), and `workspace` is a reserved server name as of 2.1.128 — a server named `workspace` is skipped with a warning, so rename it.
+
 ### Security non-negotiables
 
 MCP servers run code on your machine with your credentials. Three rules that aren't optional:
@@ -678,13 +709,15 @@ CLAUDE.md is advisory; Claude *tries* to follow it. Hooks are deterministic; the
 
 Hooks fire at specific points during a Claude Code session. When an event fires and a matcher matches, Claude Code passes JSON context to your hook handler. For command hooks, input arrives on stdin; for HTTP hooks, as the POST body. Your handler inspects, takes action, and optionally returns a decision via exit code or stdout JSON.
 
-There are 21 lifecycle events in current Claude Code, falling into three cadences:
+There are now more than twenty lifecycle events in current Claude Code, falling into three cadences (plus a display-time event, below):
 
 **Once per session:** `SessionStart` (matchers: `startup`, `resume`, `clear`, `compact`), `SessionEnd`. SessionStart is the highest-leverage event because its stdout becomes Claude's context — anything you echo here Claude can see and act on. SessionEnd is for cleanup and final logging.
 
 **Once per turn:** `UserPromptSubmit` (fires when you press enter), `Stop` (Claude finished responding), `StopFailure`. UserPromptSubmit can inject context, validate, or block; Stop is your quality gate.
 
 **Once per tool call:** `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PostToolUseFailure`, `SubagentStart`, `SubagentStop`. PreToolUse can block destructive actions; PostToolUse can format/lint/test after edits.
+
+**At display time:** `MessageDisplay` (2.1.152+) fires as each assistant message is about to be shown and can transform or hide the text — see the newer-capabilities note below.
 
 ### Hook handler types
 
@@ -719,6 +752,28 @@ For more control than exit codes alone, exit 0 and print JSON to stdout. PreTool
   }
 }
 ```
+
+### Newer hook capabilities (2.1.x)
+
+Several hook features landed in the 2.1.118–2.1.157 window that change what's worth wiring:
+
+A new **`MessageDisplay`** hook event (2.1.152) fires as assistant message text is about to be shown and lets a hook transform or hide it. This is the clean way to do output redaction (mask secrets, strip internal URLs) or house-style rewriting without touching the model — previously you'd have hacked it through PostToolUse. It's display-only; it doesn't change what the model actually said in context.
+
+**Exec-form `args`** (2.1.139): a command hook can now specify `"args": ["script.sh", "$CLAUDE_PROJECT_DIR/x"]` instead of a single `command` string. The command is spawned directly without a shell, so path placeholders with spaces never need quoting — a real reliability win on Windows paths and `$CLAUDE_PROJECT_DIR` interpolation. Prefer this form for any hook that passes file paths.
+
+**`continueOnBlock` for PostToolUse** (2.1.139): set it `true` and a PostToolUse hook's rejection reason is fed back to Claude and the turn *continues* instead of erroring out. This is what you want for "lint failed, here's what to fix" gates that should nudge rather than halt.
+
+**`terminalSequence` in hook output** (2.1.141): hooks can emit desktop notifications, window-title changes, and bells via a returned `terminalSequence` field even when they have no controlling terminal — which is exactly the background/headless case. This is the modern replacement for shelling out to `osascript`/`notify-send` inside a notify hook, and it works from background sessions where the old approach silently did nothing. (Relatedly, as of 2.1.139 hooks run *without* direct terminal access so a chatty hook can't corrupt an interactive prompt — write to stderr, not the tty.)
+
+**`effort.level` and `$CLAUDE_EFFORT`** (2.1.133): hooks now receive the active effort level in their JSON input (`effort.level`) and as the `$CLAUDE_EFFORT` environment variable, and Bash tool commands can read `$CLAUDE_EFFORT` too. Use it to scale gate strictness — run the full test suite at `high`/`xhigh`, a smoke subset at lower effort.
+
+**`background_tasks` and `session_crons` in Stop/SubagentStop input** (2.1.145): your Stop gate can now see whether background work or scheduled tasks are still in flight and decline to "finish" prematurely. Worth checking in a report-gate so the end-of-session report isn't generated while a backgrounded build is still running.
+
+**SessionStart can now mutate the session** (2.1.152): a SessionStart hook may return `reloadSkills: true` to re-scan skill directories — so a hook that *installs* a skill makes it available in the same session — and may set the session title via `hookSpecificOutput.sessionTitle`. There's also a standalone `/reload-skills` command for the interactive case.
+
+**`type: "mcp_tool"`** (2.1.118) lets a hook invoke an MCP tool directly, and **`hookSpecificOutput.updatedToolOutput`** (generalized to all tools in 2.1.121) lets a PostToolUse hook rewrite tool output before Claude sees it. PostToolUse input also carries `duration_ms` (2.1.119) for timing-based gates.
+
+One configuration caveat surfaced in 2.1.142: a `prompt`- or `agent`-type hook attached to `SessionStart`, `Setup`, or `SubagentStart` is now rejected with a clear "use a command-type hook instead" error. Those early-lifecycle events run before there's a conversation for a model-based hook to evaluate, so keep them `command`-type.
 
 ### Concrete examples
 
@@ -803,6 +858,8 @@ Without this guard, your Stop hook becomes a token-furnace. With it, the gate fi
 The same pattern applies to SubagentStop. **This is the single most important line in any Stop or SubagentStop hook.**
 
 **Default non-blocking semantics for Stop/SubagentStop.** Newer Claude Code versions ship Stop and SubagentStop hooks with `blocking: false` by default in some hook framework wrappers, precisely because the infinite-loop failure mode is so common. If you need blocking behavior (a TDD gate), you explicitly enable it — but with the `stop_hook_active` guard above.
+
+**The runtime block cap (2.1.143+).** As of 2.1.143 there is now a backstop in the runtime itself: a Stop hook that keeps blocking ends the turn with a warning after **8 consecutive blocks**, rather than looping until the session times out. You can tune the ceiling with `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`. Treat this as defense-in-depth, not a substitute for the `stop_hook_active` guard — a hook that blocks eight times in a row is still a bug, and the cap just stops it from burning your whole budget. If you ever see "turn ended after repeated Stop-hook blocks," that's the cap firing, and the fix is almost always a missing or broken `stop_hook_active` check.
 
 **AskUserQuestion has a 60-second timeout and cannot be called from subagents.** When Claude calls AskUserQuestion and you don't answer, the tool returns after 60s and Claude has to make a decision without your input — it doesn't hang the session forever. This is a small but important detail for autonomous overnight runs: if you're not at the keyboard, the workflow makes a default-choice fallback rather than blocking.
 
@@ -1081,6 +1138,16 @@ An **agent team** (the experimental Agent Teams feature, behind `CLAUDE_CODE_EXP
 
 For 90% of work, subagents are enough. Don't reach for agent teams until you've actually hit "this work needs four agents talking to each other" — that's rarer than it sounds.
 
+### Orchestration features added in 2.1.x: workflows, the agent view, and /goal
+
+Three capabilities landed in the May 2026 releases that change the ceiling on autonomous work and deserve to sit alongside subagents/forks/teams.
+
+**Dynamic workflows (`/workflows`, 2.1.154)** are the headline. You ask Claude in plain language to create a workflow, and it plans and orchestrates work across *tens to hundreds* of background agents — far beyond what you'd hand-wire with subagents or an agent team. Run `/workflows` to see your runs and their live agent counts. This is the right tool when a task fans out massively and uniformly: "migrate every call site of this deprecated API across the monorepo," "triage all 400 open Dependabot alerts." It supersedes hand-rolled fan-out for large, parallelizable jobs; you still use named subagents for the small, role-differentiated cast in your main pipeline. A `/config` setting ("Workflow keyword trigger," 2.1.157) governs whether the bare word "workflow" in a prompt auto-offers to spin one up — turn it off if you discuss workflows conversationally and don't want the prompt.
+
+**The agent view (`claude agents`, Research Preview, 2.1.139)** is a single dashboard of every Claude Code session — running, blocked on you, or done — across your machine. For someone running several background pipelines at once this replaces the "which terminal was that in" problem. It grew real flags quickly: `--add-dir`, `--settings`, `--mcp-config`, `--plugin-dir`, `--permission-mode`, `--model`, `--effort`, and `--dangerously-skip-permissions` (2.1.142–2.1.143) all set defaults for sessions dispatched from the view, `--cwd <path>` scopes the list (2.1.141), and `claude agents --json` (2.1.145) emits the session list for status bars and scripting. As of 2.1.157 the `agent` field in `settings.json` is honored for dispatched sessions, with `--agent <name>` to override. You can also fire a one-off background shell with `! <command>` inside the view, or `claude --bg --exec '<command>'` (2.1.154).
+
+**`/goal` (2.1.139)** sets a completion condition and lets Claude keep working across turns until it's met, showing live elapsed/turns/tokens in an overlay. It works in interactive, `-p`, and Remote Control. This is the lighter-weight cousin of the Stop-hook completion gate from Chapter 14: where the Stop hook enforces *your* deterministic condition (tests green, plan complete), `/goal` lets the model self-evaluate against a natural-language target. Use the Stop hook for hard guarantees; use `/goal` for "keep going until the flaky test is actually fixed" where the condition is judgment, not a check. One gotcha (fixed 2.1.140): if `disableAllHooks` or `allowManagedHooksOnly` is set, older builds let `/goal` hang silently — upgrade past 2.1.140 for the clear message.
+
 ### Subagent frontmatter, in full
 
 The full frontmatter surface for `.claude/agents/<name>.md`:
@@ -1116,9 +1183,13 @@ The fear behind "can I trust an agent to do X end-to-end" is reasonable, because
 
 **Worktree isolation is the blast-radius control.** When you set `isolation: worktree` on an agent, it runs in a fresh temporary git worktree — a separate checkout of the same branch in a separate directory. The agent can write whatever it wants there; your main working tree is untouched. When it finishes, it returns the worktree path and branch name; you review and merge (or discard). This is the foundation: if everything else fails, the worktree contains the damage. A CVE-fixing agent should *always* have worktree isolation. So should any refactor agent.
 
+One behavior change to know if you isolate agents (2.1.133): the `worktree.baseRef` setting (`fresh` | `head`) controls whether `--worktree`, `EnterWorktree`, and agent-isolation worktrees branch from `origin/<default>` or your local `HEAD`. The default is `fresh`, which branches from `origin/<default>` — meaning **unpushed local commits do not appear in the agent's worktree.** For the common bug-investigator pattern where you want the agent to see your in-progress work, set `worktree.baseRef: "head"` explicitly. (There's also `worktree.bgIsolation: "none"` in 2.1.143 for repos where worktrees are impractical and you want background sessions to edit the working copy directly — use it sparingly, since it gives up the blast-radius guarantee.) As of 2.1.154 a bug where background-session subagents could bypass the worktree-isolation guard and write to the shared checkout was fixed; if you run isolated agents from background sessions, upgrade past 2.1.154.
+
 **The `tools` / `disallowedTools` fields shape capability.** An agent that reviews code shouldn't have `Edit` or `Write`. An agent that runs the test suite shouldn't have `WebFetch`. A documentation agent shouldn't have `Bash` except for narrow git operations. The narrower the toolset, the smaller the failure space. The convention is `tools: Read Grep Glob Bash(git diff *) Bash(git log *)` — explicit list, parenthesized command patterns where you need to be specific. The opposite convention, `disallowedTools`, is for "use most things but never X" cases.
 
 **The `permissionMode` field controls when humans get pulled in.** Modes are `default` (Claude asks for sensitive operations), `acceptEdits` (file edits auto-approved, commands still ask), `plan` (read-only, surfaces a plan for approval before any action), and `bypassPermissions` (auto-approve everything — only safe inside fully-isolated worktrees with tight tool allowlists). Plan mode is the right default for any agent doing design or analysis. AcceptEdits is the right mode for agents doing well-defined implementation work in a worktree. Bypass mode is the right mode for an agent running in a worktree with `tools: Read Edit Write Bash(npm test*)` — there's nothing destructive it can do.
+
+There is now a fifth posture worth knowing: **auto mode.** Rather than the blanket allow/deny of `bypassPermissions`, auto mode runs each proposed action through a safety classifier that allows routine work and stops on genuinely risky operations (notably data exfiltration — the classifier's detection of bulk repository-content transfers was hardened in 2.1.154). It appears in the Shift+Tab permission cycle (2.1.143), no longer requires an opt-in flag or consent prompt as of 2.1.152, and — most relevant for a Bedrock/Vertex/Foundry shop — became available on those providers for Opus 4.7 and 4.8 in 2.1.158 by setting `CLAUDE_CODE_ENABLE_AUTO_MODE=1`. You can tune it with `autoMode.allow`, `autoMode.soft_deny`, `autoMode.hard_deny` (unconditional blocks, 2.1.136), and `autoMode.environment` rules; include `"$defaults"` in those lists to extend the built-in ruleset instead of replacing it (2.1.118). Think of auto mode as the middle ground between `acceptEdits` and `bypassPermissions`: more autonomous than the former, more defensible than the latter, because a classifier — not a blanket rule — is making the call.
 
 **`maxTurns` caps cost.** An agent with `maxTurns: 30` literally cannot run forever. It will hit the cap, summarize, and return. This is the simplest insurance against pathological loops and prompt-injection-induced wandering.
 
@@ -1987,7 +2058,7 @@ The ones that actually steal hours from people:
 
 **"Plan mode bypassed even though I'm in plan mode."** Some agents and skills have `permissionMode` in their frontmatter that overrides the session default. Check `/agents` and `/skills` for the active permission mode of whatever's running.
 
-**"AskUserQuestion returned empty answers."** Known regression in v2.1.104 when called from plugin skills with `bypassPermissions`. Check `claude --version`; pin or upgrade past the fix.
+**"AskUserQuestion returned empty answers."** Regression in v2.1.104 when called from plugin skills with `bypassPermissions`. Multi-select-array handling was fixed in 2.1.136 and auto-mode suppression in 2.1.147. Check `claude --version` and upgrade past 2.1.147.
 
 **"Claude won't stop responding."** Stop hook missing the `stop_hook_active` guard. Add it.
 
@@ -2060,6 +2131,18 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 |---|---|
 | `/compact` | Force compaction of conversation history now |
 | `/plan` (or shift-tab) | Toggle plan mode |
+| `/goal <condition>` | Set a completion condition; Claude works across turns until met (2.1.139) |
+| `/workflows` | View dynamic-workflow runs orchestrating many background agents (2.1.154) |
+| `/reload-skills` | Re-scan skill directories without restarting the session (2.1.152) |
+| `/code-review [effort]` | Correctness-bug review at a chosen effort; `--fix` applies findings, `--comment` posts inline PR comments (renamed from `/simplify`, 2.1.147–2.1.152) |
+| `/simplify` | Cleanup-only review (reuse, simplification, efficiency) that applies fixes (2.1.154) |
+| `/ultrareview [PR#]` | Cloud-based parallel multi-agent review of the branch or a PR (2.1.111) |
+| `/usage` | Usage and cost view; per-category breakdown by skills/subagents/plugins/MCP (merges `/cost` + `/stats`, 2.1.118; breakdown 2.1.149) |
+| `/usage-credits` | Manage usage credits (renamed from `/extra-usage`, 2.1.144) |
+| `/less-permission-prompts` | Scan transcripts and propose a read-only allowlist for settings (2.1.111) |
+| `/tui fullscreen` | Switch to flicker-free fullscreen rendering in place (2.1.110) |
+| `/focus` | Toggle focus view (split from `Ctrl+O`, 2.1.110) |
+| `/effort` | Open the effort slider (Faster ↔ Smarter); supports `xhigh` on Opus 4.7/4.8 |
 | `/skill-creator create` | Start interactive skill creation |
 | `/skill-creator eval <name>` | Evaluate a skill against test queries |
 | `/skill-creator improve <name>` | Auto-optimize a skill's description |
@@ -2075,9 +2158,21 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `--debug "hooks,mcp,api"` | Multiple subsystems |
 | `--mcp-debug` | Synonym for `--debug mcp` in some versions |
 | `--verbose` | Inline action traces (display ordering can be unreliable) |
-| `--plugin-dir <path>` | Load a plugin from a local directory |
+| `--plugin-dir <path>` | Load a plugin from a local directory (also accepts a `.zip`) |
 | `--plugin-url <url>` | Load a plugin from a URL/zip |
+| `--effort <level>` | Set effort (`low`…`high`, `xhigh`, `max`) for the session |
+| `--agent <name>` | Run/override the agent for the session (honors its frontmatter; 2.1.157) |
+| `--fallback-model <id>` | Model to fall back to for the rest of the session if the primary is unavailable (2.1.152) |
+| `--from-pr <url>` | Start from a PR/MR (GitHub, GHE, GitLab, Bitbucket) |
+| `--worktree` | Run the session in an isolated git worktree |
+| `--bg` / `--bg --exec '<cmd>'` | Start a background session (or run a shell command as one, 2.1.154) |
 | `--version` | Print Claude Code version |
+| `claude agents` | Open the agent-view dashboard of all sessions (2.1.139) |
+| `claude agents --json` | Emit the live session list as JSON for scripting (2.1.145) |
+| `claude plugin init <name>` | Scaffold a new plugin in `.claude/skills` (2.1.157) |
+| `claude plugin details <name>` | Show a plugin's component inventory + projected token cost (2.1.139) |
+| `claude ultrareview [target]` | Run `/ultrareview` non-interactively from CI (`--json`; 2.1.120) |
+| `claude project purge [path]` | Delete all Claude Code state for a project (2.1.126) |
 | `claude mcp add` | Register an MCP server |
 | `claude mcp list` | Show configured MCP servers |
 | `claude mcp doctor` | Diagnose MCP connection problems |
@@ -2095,9 +2190,19 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `CLAUDE_CODE_FORK_SUBAGENT=1` | Enable subagent forks |
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | Enable agent teams (requires v2.1.32+) |
 | `CLAUDE_CODE_NEW_INIT=1` | Multi-phase interactive `/init` |
-| `ENABLE_TOOL_SEARCH` | Toggle Tool Search (default on) |
+| `ENABLE_TOOL_SEARCH` | Toggle Tool Search (default on; off by default on Vertex) |
 | `ANTHROPIC_MODEL` | Default model for first turn |
-| `CLAUDE_CODE_EFFORT_LEVEL` | Default effort for CLI sessions (note: `max` is API-only) |
+| `CLAUDE_CODE_EFFORT_LEVEL` | Default effort for CLI sessions (`max` is API-only; `xhigh` on Opus 4.7/4.8) |
+| `CLAUDE_EFFORT` | Active effort level, exposed to hooks and Bash tool commands (2.1.133) |
+| `CLAUDE_CODE_ENABLE_AUTO_MODE=1` | Enable auto mode on Bedrock/Vertex/Foundry for Opus 4.7/4.8 (2.1.158) |
+| `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` | Consecutive-Stop-block ceiling before the turn ends (default 8; 2.1.143) |
+| `CLAUDE_CODE_SESSION_ID` | Session id, exposed to Bash subprocess and stdio MCP servers (2.1.132/2.1.154) |
+| `CLAUDECODE=1` | Set in stdio MCP server environment to signal Claude Code (2.1.154) |
+| `CLAUDE_CODE_PLUGIN_PREFER_HTTPS` | Clone GitHub plugin sources over HTTPS instead of SSH (2.1.141) |
+| `CLAUDE_CODE_USE_POWERSHELL_TOOL` | Toggle the PowerShell tool (default-on Windows for Bedrock/Vertex/Foundry as of 2.1.143; set `0` to keep Git Bash) |
+| `ANTHROPIC_WORKSPACE_ID` | Scope a federated token to a specific workspace (2.1.141) |
+| `ANTHROPIC_BEDROCK_SERVICE_TIER` | Bedrock service tier: `default`, `flex`, or `priority` (2.1.122) |
+| `OTEL_LOG_TOOL_DETAILS=1` | Include tool parameters (bash commands, MCP/skill names) in telemetry (2.1.157) |
 
 ### Hook lifecycle events
 
@@ -2115,6 +2220,7 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `Stop` | Claude finishes a response turn |
 | `StopFailure` | Claude's turn errored |
 | `Notification` (matchers: `permission_prompt`, `idle_prompt`, `auth_success`, etc.) | Notification triggered |
+| `MessageDisplay` | As each assistant message is shown; can transform or hide text (2.1.152) |
 | `InstructionsLoaded` | After all CLAUDE.md and rules merge into the system prompt |
 
 ---
@@ -2129,12 +2235,14 @@ name: <unique-name>                     # required
 description: <when to invoke>           # required; up to 1,536 chars combined with when_to_use
 when_to_use: <additional guidance>      # optional; helps with auto-routing
 allowed-tools: Tool Tool Bash(pattern)  # space-separated; restricts what the skill can use
+disallowed-tools: Bash WebFetch         # remove tools from the model while active (2.1.152)
 disable-model-invocation: false         # if true, only /skill-name works (Claude won't auto-call)
 user-invocable: true                    # if false, hidden from / menu but Claude can still call
 context: fork                           # run in isolated subagent
 agent: Explore                          # which agent profile when context: fork
 argument-hint: <hint for arguments>     # shown in / menu
 model: <override>                       # use a specific model just for this skill
+effort: high                            # pin effort for this skill; body can read ${CLAUDE_EFFORT}
 hooks: { ... }                          # skill-scoped hooks (rare)
 ---
 ```
@@ -2146,7 +2254,7 @@ hooks: { ... }                          # skill-scoped hooks (rare)
 name: <unique-name>                     # required
 description: <when to invoke>           # required; routes Claude to this agent
 model: claude-opus-4-7                  # or sonnet, haiku, inherit, full model ID
-effort: high                            # low, medium, high, max (max is API-only)
+effort: high                            # low, medium, high, xhigh (Opus 4.7/4.8), max (API-only)
 tools:                                  # explicit allowlist
   - Read
   - Edit
@@ -2234,6 +2342,52 @@ For prompt-engineering and skill design beyond Claude Code itself, the **Anthrop
 For the agent SDK specifically (if you want to build your own agentic systems on the same primitives as Claude Code), see `code.claude.com/docs/en/agent-sdk/overview`. The SDK exposes the same tool loop and context management — Claude Code is essentially the canonical client of the SDK.
 
 The community has settled on a few common patterns worth knowing about: the **"business brain"** pattern (separating brand/project context from agent instructions), the **"agent-coordination skill"** approach (using a single shared skill as the canonical project memory for multi-agent setups), and the **plan-execute loop** (specs/ + prompt_plan.md + CLAUDE.md, which this book builds on). Articles documenting these patterns appear regularly on Medium and dev.to; the underlying mechanics are all explained in this handbook.
+
+---
+
+## Appendix F. Release Delta — Changes Since 2.1.132
+
+This appendix catalogs the changes between Claude Code 2.1.132 and 2.1.158 (May 6–30, 2026) that affect what this handbook teaches. It's organized by the book's own structure so you can see, surface by surface, what moved. Bug fixes are omitted unless they change guidance; version numbers are in parentheses so you can check `claude --version` against them. The headline of the window is **Opus 4.8** (2.1.154), which now defaults to high effort, adds an `xhigh` step below `max`, and brings a 1M-token context window; and **dynamic workflows** (2.1.154), which raise the ceiling on parallel autonomous work from a handful of agents to hundreds.
+
+### Models and effort
+
+Opus 4.8 shipped in 2.1.154 and is the assumed model for this edition. It defaults to **high** effort, and `/effort xhigh` is available for the hardest tasks (the `xhigh` level sits between `high` and `max`, and was introduced for Opus 4.7 in 2.1.111). Fast mode on Opus 4.8 runs at 2× the standard rate for 2.5× the speed (2.1.154); fast mode's default backing model moved from 4.6 to 4.7 in 2.1.142, and the `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE` knob is deprecated (removed 06/01/2026). The `/effort` slider's labels were renamed from "Speed/Intelligence" to "Faster/Smarter" (2.1.154). A lean system prompt is now the default for all models except Haiku, Sonnet, and Opus 4.7-and-earlier (2.1.154) — Opus 4.8 sessions start with less baseline context overhead, which is free headroom for your CLAUDE.md and skills.
+
+### Autonomy (Chapters 16, 19, 20)
+
+This is the most consequential area for a vibe-coding-at-scale pipeline. **Auto mode** matured from an opt-in experiment into a first-class permission posture: it no longer requires a flag or consent prompt (2.1.152), appears in the Shift+Tab cycle (2.1.143), and — critically for AWS Bedrock users — is now available on Bedrock, Vertex, and Foundry for Opus 4.7 and 4.8 via `CLAUDE_CODE_ENABLE_AUTO_MODE=1` (2.1.158). It's classifier-driven rather than blanket-approve, with `autoMode.allow` / `soft_deny` / `hard_deny` / `environment` rules (hard-deny added 2.1.136), and `"$defaults"` to extend rather than replace the built-in ruleset (2.1.118). The exfiltration classifier was hardened against bulk repo-content transfers in 2.1.154. See Chapter 19 for where it sits relative to `acceptEdits` and `bypassPermissions`.
+
+**Dynamic workflows** (`/workflows`, 2.1.154) orchestrate tens to hundreds of background agents from a natural-language request — the right tool for massively parallel, uniform jobs that you'd never hand-wire as subagents. A `/config` "Workflow keyword trigger" toggle (2.1.157) controls whether the bare word "workflow" auto-offers one. **`/goal`** (2.1.139) sets a natural-language completion condition and keeps Claude working across turns until met, with a live overlay; it's the judgment-based cousin of the deterministic Stop-hook gate. Both are covered in Chapter 18.
+
+The **agent view** (`claude agents`, Research Preview, 2.1.139) is a cross-session dashboard, with a steady stream of flags added through 2.1.157 (`--add-dir`, `--settings`, `--mcp-config`, `--plugin-dir`, `--permission-mode`, `--model`, `--effort`, `--dangerously-skip-permissions`, `--cwd`, `--json`, and `! <command>` background shells). Background sessions also got `/resume` support (2.1.144) and now preserve model, effort, and permission mode across idle/wake (2.1.141, 2.1.143).
+
+### Hooks (Chapters 13, 14)
+
+A genuinely new event: **`MessageDisplay`** (2.1.152) transforms or hides assistant text at display time — the clean path for output redaction. New configuration on existing events: exec-form **`args: string[]`** (2.1.139) spawns without a shell so paths never need quoting; **`continueOnBlock`** for PostToolUse (2.1.139) feeds a rejection reason back and continues the turn; **`terminalSequence`** in hook output (2.1.141) emits notifications/titles/bells from headless and background contexts. Hooks now receive **`effort.level`** and `$CLAUDE_EFFORT` (2.1.133), and Stop/SubagentStop input carries **`background_tasks`** and **`session_crons`** (2.1.145). SessionStart can return **`reloadSkills: true`** and set **`sessionTitle`** (2.1.152). Hooks can invoke MCP tools via **`type: "mcp_tool"`** (2.1.118) and rewrite output via **`updatedToolOutput`** for all tools (2.1.121); PostToolUse input gained **`duration_ms`** (2.1.119). The loop backstop: a Stop hook that blocks 8 times in a row now ends the turn with a warning, tunable via **`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`** (2.1.143) — defense-in-depth behind the `stop_hook_active` guard, not a replacement. Two constraints: prompt/agent-type hooks on `SessionStart`/`Setup`/`SubagentStart` are now rejected with a clear error (2.1.142), and hooks run without direct terminal access (2.1.139), so write to stderr.
+
+### Skills (Chapters 7, 8, 12)
+
+**`disallowed-tools`** frontmatter (2.1.152) removes tools from the model while a skill or command is active — the inverse of `allowed-tools`. **`/reload-skills`** and SessionStart `reloadSkills` (2.1.152) make new skills live without a restart. Skill bodies can read **`${CLAUDE_EFFORT}`** (2.1.120) and pin **`effort:`** frontmatter. **`skillOverrides`** (working 2.1.129) controls per-skill visibility (`off`, `user-invocable-only`, `name-only`). A reliability fix: subagents discover project/user/plugin skills via the Skill tool again as of 2.1.133, and a `context: fork` self-re-invocation loop was fixed in 2.1.145. The Read tool now returns a truncated "PARTIAL view" page instead of a hard error when a whole-file read exceeds the token limit (2.1.145) — relevant to skills that read large files.
+
+### MCP (Chapter 11)
+
+**`alwaysLoad`** (2.1.121) opts a server out of Tool Search deferral so all its tools are always present — use only for small, hot servers. Stdio MCP subprocesses now receive **`CLAUDE_PROJECT_DIR`** (2.1.139) and **`CLAUDE_CODE_SESSION_ID` + `CLAUDECODE=1`** (2.1.154), and plugin configs can interpolate `${CLAUDE_PROJECT_DIR}`. **`MCP_TOOL_TIMEOUT`** finally raises the per-request ceiling above 60s (fixed 2.1.142), and paginated `tools/list` responses are fully consumed (fixed 2.1.144). `/mcp` Reconnect picks up `.mcp.json` edits without a restart (2.1.139), `workspace` is a reserved server name (2.1.128), and `allowAllClaudeAiMcps` (2.1.149) loads claude.ai cloud connectors alongside managed MCP config. Note for API-key/Bedrock setups: Remote Control, `/schedule`, claude.ai connectors, and notifications are disabled when `ANTHROPIC_API_KEY` / `apiKeyHelper` / `ANTHROPIC_AUTH_TOKEN` is set (2.1.139); unset the key to use them.
+
+### Plugins (Chapter 10)
+
+Plugins in `.claude/skills` are now auto-loaded with no marketplace required (2.1.157), and `claude plugin init <name>` scaffolds one (2.1.157). Plugins can ship disabled with **`defaultEnabled: false`** in `plugin.json` (2.1.154). Dependency enforcement (2.1.143): `plugin disable` refuses when a dependent is enabled, `plugin enable` force-enables transitive deps, and `plugin prune` removes orphans (2.1.121). `claude plugin details` and the `/plugin` panes now show full component inventories and projected per-session token cost before install (2.1.139, 2.1.145). A plugin with a root-level `SKILL.md` and no `skills/` directory is surfaced as a skill (2.1.142). The `pluginSuggestionMarketplaces` managed setting (2.1.152) lets admins allowlist marketplaces for context-aware suggestions.
+
+### Settings and worktrees (Chapters 15, 19)
+
+New settings worth knowing: **`worktree.baseRef`** (`fresh` | `head`, 2.1.133) — default `fresh` branches agent worktrees from `origin/<default>`, so set `head` to include unpushed local commits; **`worktree.bgIsolation: "none"`** (2.1.143) lets background sessions edit the working copy directly; **`sandbox.network.deniedDomains`** (2.1.113) and `sandbox.bwrapPath`/`socatPath` (2.1.133); **`parentSettingsBehavior`** (2.1.133) and `prUrlTemplate` (2.1.119). `/config` settings now persist to `settings.json` and participate in scope precedence (2.1.119). On Windows, the PowerShell tool is default-on for Bedrock/Vertex/Foundry (2.1.143) — set `CLAUDE_CODE_USE_POWERSHELL_TOOL=0` to stay on Git Bash, which is the relevant choice for a Git-Bash-on-Windows workflow.
+
+### Debugging and observability (Part VIII)
+
+`/usage` now breaks down what's driving your limits by skills, subagents, plugins, and per-MCP-server cost (2.1.149) — a fast way to find the expensive layer in a big pipeline. Subagent API requests carry `x-claude-code-agent-id` / `parent_agent_id` headers and OTEL spans (2.1.139, 2.1.145), `tool_decision` telemetry includes `tool_parameters` under `OTEL_LOG_TOOL_DETAILS=1` (2.1.157), and status-line JSON now includes GitHub repo/PR info (2.1.145) plus `COLUMNS`/`LINES` (2.1.153). `claude doctor` reports the result of your last update attempt (2.1.153).
+
+### Command renames to update muscle memory
+
+`/simplify` → `/code-review` (2.1.147), then `/simplify` returned as a cleanup-only review (2.1.154); `/code-review` takes an effort level and `--fix` / `--comment`. `/cost` and `/stats` merged into `/usage` (2.1.118, both remain as shortcuts). `/extra-usage` → `/usage-credits` (2.1.144). `/model` now sets the default for new sessions (press `s` for current-session-only); the old `modelPicker:setAsDefault` keybinding is renamed `modelPicker:thisSessionOnly` (2.1.153).
 
 ---
 
