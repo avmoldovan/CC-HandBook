@@ -1,4 +1,4 @@
-# Claude Code Autonomous Pipeline — Complete Starter Kit (v3, aligned to 2.1.158 / Opus 4.8)
+# Claude Code Autonomous Pipeline — Complete Starter Kit (v4, aligned to 2.1.204 / July 2026)
 
 A full software-development-lifecycle pipeline built on Claude Code agents, hooks, skills, and MCP servers, with debug instrumentation built in. Drop the file tree below into a project's `.claude/` directory, fill in the credentials, and you have a setup that takes a Jira ticket and turns it into a reviewed, tested, documented, deploy-ready change — with you in the loop only at the points where judgment is genuinely required, and with audit logs that explain every failure when it happens.
 
@@ -16,6 +16,14 @@ A full software-development-lifecycle pipeline built on Claude Code agents, hook
 - `notify.sh` modernized to emit a `terminalSequence` so notifications work from background/headless sessions
 - Optional auto-mode block (`CLAUDE_CODE_ENABLE_AUTO_MODE=1`) documented for Bedrock/Vertex/Foundry autonomy on Opus 4.7/4.8
 - `startup_check.py` self-check updated for current versions and the later AskUserQuestion fixes
+
+**What's new in v4 (aligned to Claude Code 2.1.204, July 2026):**
+- **Deprecations/removals handled:** the `/agents` wizard is gone (create agents by editing `.claude/agents/` directly, which this kit already does); Agent Teams' `TeamCreate`/`TeamDelete` tools are removed (implicit team now); the dynamic-workflow keyword is `ultracode`, not `workflow`; and `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE` is now a no-op.
+- **Model pinning matters more:** Sonnet 5 is now Claude Code's default model (2.1.197), so agents that must run on Opus pin it explicitly (already the case in this kit's agent frontmatter). Fable 5 (2.1.170) carries 1M context by default and auto-strips a redundant `[1m]` suffix (2.1.173) — safe to leave your Opus `[1m]` pin as-is.
+- **Permission-mode rename:** what the UI now calls "Manual" is the old `default` mode; `permissionMode: default` in agent frontmatter still works unchanged.
+- **AskUserQuestion no longer auto-continues** (2.1.200) — the pipeline keeps AskUserQuestion out of the unattended path and relies on hooks + auto mode, so nothing changes here, but don't add unattended AskUserQuestion calls without configuring an idle timeout in `/config`.
+- **Cleaner Stop-hook feedback:** `test_gate.sh` documents the `additionalContext` return (2.1.163) as a softer alternative to `exit 2`.
+- `startup_check.py` gains a `--safe-mode` reminder and a default-model awareness note.
 
 ---
 
@@ -591,8 +599,26 @@ def main() -> None:
                     "On 2.1.154+ you also get Opus 4.8 defaults and dynamic "
                     "workflows (/workflows) — consider upgrading."
                 )
+
+            # 2.1.197: Sonnet 5 became Claude Code's DEFAULT model. Agents in
+            # this kit pin their model explicitly, but a bare `claude` session
+            # now defaults to Sonnet 5 — pin Opus with /model or ANTHROPIC_MODEL
+            # if a task needs it.
+            if ver >= (2, 1, 197):
+                info.append(
+                    "Default model is Sonnet 5 (2.1.197+). This kit's agents "
+                    "pin their own model; set ANTHROPIC_MODEL to pin the main "
+                    "session if you need Opus."
+                )
     except Exception:
         pass  # Version check is best-effort
+
+    # --- Troubleshooting reminder ---
+    # If this pipeline misbehaves in a way you can't localize, the fastest
+    # isolation test is `claude --safe-mode` (2.1.169+): it disables CLAUDE.md,
+    # plugins, skills, hooks, and MCP servers in one flag. If the problem
+    # disappears there, it's in this config.
+    info.append("Tip: `claude --safe-mode` disables all customizations for a clean-room test.")
 
     # --- Auto mode awareness (Bedrock/Vertex/Foundry, 2.1.158+) ---
     # Surface whether unattended auto mode is actually enabled, so an overnight
@@ -657,6 +683,11 @@ INPUT=$(cat)
 # (As of 2.1.143 the runtime also caps consecutive Stop-hook blocks at 8 —
 #  tunable via CLAUDE_CODE_STOP_HOOK_BLOCK_CAP — but that's a backstop, not a
 #  substitute. A gate that ever blocks 8x in a row is still a bug to fix here.)
+# NOTE (2.1.163+): instead of `exit 2` you can emit JSON with
+#  hookSpecificOutput.additionalContext to feed feedback back to Claude and
+#  keep the turn going WITHOUT logging a hook error. exit 2 is a hard block;
+#  additionalContext is a softer nudge. This gate uses exit 2 for a firm
+#  stop-the-line TDD gate — swap it if you want the softer behavior.
 if [ "$(echo "$INPUT" | jq -r '.stop_hook_active')" = "true" ]; then
   exit 0
 fi
