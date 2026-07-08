@@ -34,7 +34,7 @@ Out of scope: prompt engineering inside a single message; programming the Claude
 
 Claude Code changes fast. Features that were experimental six months ago are stable now; features stable today may be deprecated in a year. Where exact version-dependent behavior matters, the book calls it out and gives you the inspection command to verify your version. Where the conceptual model has been stable, the book just states it. The mental model and architectural patterns are durable even when specific commands rename themselves.
 
-This edition is current to **Claude Code 2.1.158 (May 30, 2026)** and assumes **Claude Opus 4.8** as the working model. Changes that landed between 2.1.132 and 2.1.158 are folded into the relevant chapters and collected, with version numbers, in **Appendix F — Release Delta**. If you're reading this much later, run `claude --version` and skim Appendix F first to see which specifics have moved.
+This edition is current to **Claude Code 2.1.204 (July 8, 2026)**. It was written around **Claude Opus 4.8** as the working model; note that as of 2.1.197 the *default* model in Claude Code is now **Claude Sonnet 5** (1M context), and **Claude Fable 5** (a Mythos-class model) is selectable since 2.1.170 — pick your model explicitly with `/model` if you depend on Opus. Changes between 2.1.132 and 2.1.158 are folded into the chapters and collected in **Appendix F — Release Delta**; everything from 2.1.159 through 2.1.204, including what has been **deprecated and removed**, is in **Appendix G**. If you're reading this later still, run `claude --version` and skim Appendix G first.
 
 ---
 
@@ -106,6 +106,7 @@ This edition is current to **Claude Code 2.1.158 (May 30, 2026)** and assumes **
 - [Appendix D. The Companion Starter Kit](#appendix-d-the-companion-starter-kit)
 - [Appendix E. Further Reading](#appendix-e-further-reading)
 - [Appendix F. Release Delta — Changes Since 2.1.132](#appendix-f-release-delta--changes-since-2-1-132)
+- [Appendix G. Release Delta — 2.1.159 to 2.1.204 (Deprecations, Removals, and New Capabilities)](#appendix-g-release-delta--2-1-159-to-2-1-204-deprecations-removals-and-new-capabilities)
 
 ---
 
@@ -861,7 +862,9 @@ The same pattern applies to SubagentStop. **This is the single most important li
 
 **The runtime block cap (2.1.143+).** As of 2.1.143 there is now a backstop in the runtime itself: a Stop hook that keeps blocking ends the turn with a warning after **8 consecutive blocks**, rather than looping until the session times out. You can tune the ceiling with `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`. Treat this as defense-in-depth, not a substitute for the `stop_hook_active` guard — a hook that blocks eight times in a row is still a bug, and the cap just stops it from burning your whole budget. If you ever see "turn ended after repeated Stop-hook blocks," that's the cap firing, and the fix is almost always a missing or broken `stop_hook_active` check.
 
-**AskUserQuestion has a 60-second timeout and cannot be called from subagents.** When Claude calls AskUserQuestion and you don't answer, the tool returns after 60s and Claude has to make a decision without your input — it doesn't hang the session forever. This is a small but important detail for autonomous overnight runs: if you're not at the keyboard, the workflow makes a default-choice fallback rather than blocking.
+**A cleaner feedback path than exit 2 (2.1.163+).** Stop and SubagentStop hooks can now return `hookSpecificOutput.additionalContext` to hand Claude feedback and keep the turn going *without* the interaction being logged as a hook error. Where exit 2 forces continuation by raising a blocking error (noisy in the transcript and in `--debug`), `additionalContext` reads as guidance: "tests are red, here's the tail — keep working." For a TDD gate you now have a choice — exit 2 for a hard stop-the-line block, or `additionalContext` for a softer nudge. The `stop_hook_active` guard still matters either way, because both paths re-enter the hook on the next stop attempt.
+
+**AskUserQuestion no longer auto-continues by default (2.1.200), and cannot be called from subagents.** Older versions returned a default-choice fallback after a 60-second timeout; as of 2.1.200 the dialog waits rather than auto-continuing, and you opt into an idle timeout via `/config` if you want the old unattended behavior back. For overnight autonomous runs this is a meaningful change: if a skill calls AskUserQuestion and nobody answers, the turn now *waits* unless you've explicitly configured an idle timeout — so either configure one or keep AskUserQuestion out of the unattended path and let hooks + auto mode make the call instead.
 
 ### The hash-sentinel idempotency pattern
 
@@ -1134,7 +1137,7 @@ A **subagent** is a scoped specialist invoked through the Task tool. It has its 
 
 A **fork** is cheaper: it reuses the parent's system prompt and tool definitions, so the first request hits the parent's prompt cache. Use forks when you want the same setup as the parent but isolated execution — speculative refactors, "try this and report back" tasks. Enable with `CLAUDE_CODE_FORK_SUBAGENT=1` or pass `isolation: "worktree"` when spawning. A fork cannot spawn further forks.
 
-An **agent team** (the experimental Agent Teams feature, behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, requires v2.1.32+) coordinates multiple long-lived sessions with a team lead. Teammates can message each other directly through a mailbox system, not just report back to the lead. Use it for genuinely parallel work across separate workstreams (refactor the API layer while migrating the database while updating tests) where the workers need to coordinate. **Important caveat:** as of April 2026, Anthropic restricted Pro/Max subscribers from using most third-party orchestration frameworks with their subscription — Agent Teams is now the official path, and API users are unaffected.
+An **agent team** (the experimental Agent Teams feature, behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) coordinates multiple long-lived sessions with a team lead. Teammates can message each other directly through a mailbox system, not just report back to the lead. Use it for genuinely parallel work across separate workstreams (refactor the API layer while migrating the database while updating tests) where the workers need to coordinate. **Two changes to know (2.1.178):** the `TeamCreate` and `TeamDelete` tools were *removed* — with the flag set, every session now has one implicit team, so you spawn teammates directly with the Agent tool's `name` parameter and skip the setup step (the old `team_name` parameter is still accepted but ignored). Separately, the broader capability grew: as of 2.1.172 subagents can spawn their *own* subagents up to 5 levels deep, so a lead → teammate → helper chain is now a first-class pattern rather than something you fake.
 
 For 90% of work, subagents are enough. Don't reach for agent teams until you've actually hit "this work needs four agents talking to each other" — that's rarer than it sounds.
 
@@ -1142,7 +1145,9 @@ For 90% of work, subagents are enough. Don't reach for agent teams until you've 
 
 Three capabilities landed in the May 2026 releases that change the ceiling on autonomous work and deserve to sit alongside subagents/forks/teams.
 
-**Dynamic workflows (`/workflows`, 2.1.154)** are the headline. You ask Claude in plain language to create a workflow, and it plans and orchestrates work across *tens to hundreds* of background agents — far beyond what you'd hand-wire with subagents or an agent team. Run `/workflows` to see your runs and their live agent counts. This is the right tool when a task fans out massively and uniformly: "migrate every call site of this deprecated API across the monorepo," "triage all 400 open Dependabot alerts." It supersedes hand-rolled fan-out for large, parallelizable jobs; you still use named subagents for the small, role-differentiated cast in your main pipeline. A `/config` setting ("Workflow keyword trigger," 2.1.157) governs whether the bare word "workflow" in a prompt auto-offers to spin one up — turn it off if you discuss workflows conversationally and don't want the prompt.
+**Dynamic workflows (`/workflows`, 2.1.154)** are the headline. You ask Claude in plain language to create a workflow, and it plans and orchestrates work across *tens to hundreds* of background agents — far beyond what you'd hand-wire with subagents or an agent team. Run `/workflows` to see your runs and their live agent counts. This is the right tool when a task fans out massively and uniformly: "migrate every call site of this deprecated API across the monorepo," "triage all 400 open Dependabot alerts." It supersedes hand-rolled fan-out for large, parallelizable jobs; you still use named subagents for the small, role-differentiated cast in your main pipeline. **Note the keyword change:** the explicit trigger keyword was renamed from `workflow` to **`ultracode`** in 2.1.160 (highlighted violet in the prompt) — the bare word "workflow" no longer triggers a run, though asking for one in your own words still works. A "Dynamic workflow size" setting in `/config` (2.1.202) advises how large Claude makes these runs.
+
+As of 2.1.198, **subagents run in the background by default** — Claude keeps working on the main thread while a delegated agent runs, and you're notified (via the `Notification` hook, matchers `agent_needs_input` / `agent_completed`) when it needs input or finishes. Background agents launched from `claude agents` that finish code work in a worktree now commit, push, and open a draft PR on their own instead of stopping to ask.
 
 **The agent view (`claude agents`, Research Preview, 2.1.139)** is a single dashboard of every Claude Code session — running, blocked on you, or done — across your machine. For someone running several background pipelines at once this replaces the "which terminal was that in" problem. It grew real flags quickly: `--add-dir`, `--settings`, `--mcp-config`, `--plugin-dir`, `--permission-mode`, `--model`, `--effort`, and `--dangerously-skip-permissions` (2.1.142–2.1.143) all set defaults for sessions dispatched from the view, `--cwd <path>` scopes the list (2.1.141), and `claude agents --json` (2.1.145) emits the session list for status bars and scripting. As of 2.1.157 the `agent` field in `settings.json` is honored for dispatched sessions, with `--agent <name>` to override. You can also fire a one-off background shell with `! <command>` inside the view, or `claude --bg --exec '<command>'` (2.1.154).
 
@@ -1188,6 +1193,8 @@ One behavior change to know if you isolate agents (2.1.133): the `worktree.baseR
 **The `tools` / `disallowedTools` fields shape capability.** An agent that reviews code shouldn't have `Edit` or `Write`. An agent that runs the test suite shouldn't have `WebFetch`. A documentation agent shouldn't have `Bash` except for narrow git operations. The narrower the toolset, the smaller the failure space. The convention is `tools: Read Grep Glob Bash(git diff *) Bash(git log *)` — explicit list, parenthesized command patterns where you need to be specific. The opposite convention, `disallowedTools`, is for "use most things but never X" cases.
 
 **The `permissionMode` field controls when humans get pulled in.** Modes are `default` (Claude asks for sensitive operations), `acceptEdits` (file edits auto-approved, commands still ask), `plan` (read-only, surfaces a plan for approval before any action), and `bypassPermissions` (auto-approve everything — only safe inside fully-isolated worktrees with tight tool allowlists). Plan mode is the right default for any agent doing design or analysis. AcceptEdits is the right mode for agents doing well-defined implementation work in a worktree. Bypass mode is the right mode for an agent running in a worktree with `tools: Read Edit Write Bash(npm test*)` — there's nothing destructive it can do.
+
+Naming note (2.1.200): the mode formerly surfaced as "default" is now labeled **"Manual"** across the CLI, `--help`, VS Code, and JetBrains, and a grey ⏸ badge appears in the footer when you're in it (2.1.203). Both `--permission-mode manual` / `"defaultMode": "manual"` and the old `default` spelling are accepted, so existing agent frontmatter and settings keep working — but when you read "Manual" in the UI, that's this mode.
 
 There is now a fifth posture worth knowing: **auto mode.** Rather than the blanket allow/deny of `bypassPermissions`, auto mode runs each proposed action through a safety classifier that allows routine work and stops on genuinely risky operations (notably data exfiltration — the classifier's detection of bulk repository-content transfers was hardened in 2.1.154). It appears in the Shift+Tab permission cycle (2.1.143), no longer requires an opt-in flag or consent prompt as of 2.1.152, and — most relevant for a Bedrock/Vertex/Foundry shop — became available on those providers for Opus 4.7 and 4.8 in 2.1.158 by setting `CLAUDE_CODE_ENABLE_AUTO_MODE=1`. You can tune it with `autoMode.allow`, `autoMode.soft_deny`, `autoMode.hard_deny` (unconditional blocks, 2.1.136), and `autoMode.environment` rules; include `"$defaults"` in those lists to extend the built-in ruleset instead of replacing it (2.1.118). Think of auto mode as the middle ground between `acceptEdits` and `bypassPermissions`: more autonomous than the former, more defensible than the latter, because a classifier — not a blanket rule — is making the call.
 
@@ -1883,6 +1890,8 @@ CLAUDE_CONFIG_DIR=/tmp/claude-clean claude
 
 This launches with zero personal config. No user CLAUDE.md, no user settings, no user skills/agents/hooks, no memory. Managed (org-level) settings still apply because they live at a system path. If the issue persists here, it's environmental (network, model availability, an Anthropic-side issue) or you've found a real bug.
 
+**The one-flag shortcut (2.1.169+): `--safe-mode`.** As of 2.1.169 you can start Claude Code with all customizations — CLAUDE.md, plugins, skills, hooks, MCP servers — disabled in a single flag: `claude --safe-mode` (or set `CLAUDE_CODE_SAFE_MODE`). This is the fastest possible "is it my config or the tool?" check: if the problem vanishes under `--safe-mode`, it's something in your configuration and you move to the bisection below; if it persists, it's environmental or a real bug. Reach for `--safe-mode` first, and only set up the `CLAUDE_CONFIG_DIR` clean room when you specifically need managed settings out of the picture too, or when you want to bisect by copying config subtrees back in.
+
 If the issue *disappears* in the clean room, the cause is in your configuration. Now bisect: copy your real `~/.claude/` to the clean dir, run again, see if it reappears. If yes, the cause is in user-scope config. Half it again: copy only `~/.claude/CLAUDE.md`, test; then add `~/.claude/skills/`; then `~/.claude/agents/`. Within four iterations you'll know which subtree contains the problem, and from there a quick read of the files identifies the culprit.
 
 For the project-scope side, do the inverse: start in your real project, then move `.claude/` aside (`mv .claude .claude.bak`) and see if the problem persists. If it goes away, walk back: rename `.claude.bak/settings.json` back, test; add `agents/`; add `skills/`; add `hooks/`. Same bisection.
@@ -2101,7 +2110,7 @@ When you're stuck on "where does this thing belong," walk this table top to bott
 | An **agent doing risky modifications** | Agent with `isolation: worktree` | Blast radius bounded to a temp checkout |
 | Something **distributable to teammates or other projects** | Plugin (`/plugin marketplace` + `/plugin install`) | Versioned, namespaced, updatable |
 | A **learned fact Claude figured out** | Leave in auto memory; promote to CLAUDE.md only if it's a rule | Auto memory is for learnings, not rules |
-| An **interactive decision** during a workflow | `AskUserQuestion` invocation in skill body or CLAUDE.md directive | 60s timeout, can't be called from subagents |
+| An **interactive decision** during a workflow | `AskUserQuestion` invocation in skill body or CLAUDE.md directive | Waits by default (2.1.200); can't be called from subagents |
 | A **prompt-driven workflow** invoked manually | Custom slash command at `.claude/commands/<name>.md` | Manual trigger; skill auto-triggers, command doesn't |
 
 The bottom-line decision rule one more time: **if it must be true in every session, it's CLAUDE.md or a `.claude/rules/` file. If it's a procedure invoked sometimes, it's a skill. If it's a capability against an external system, it's an MCP server. If you want to ship any of the above to others, wrap it in a plugin. If it must happen at a fixed lifecycle event no matter what, it's a hook. If it's who does the work, it's an agent.**
@@ -2132,7 +2141,7 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `/compact` | Force compaction of conversation history now |
 | `/plan` (or shift-tab) | Toggle plan mode |
 | `/goal <condition>` | Set a completion condition; Claude works across turns until met (2.1.139) |
-| `/workflows` | View dynamic-workflow runs orchestrating many background agents (2.1.154) |
+| `/workflows` | View dynamic-workflow runs orchestrating many background agents (2.1.154; explicit trigger keyword is `ultracode` as of 2.1.160) |
 | `/reload-skills` | Re-scan skill directories without restarting the session (2.1.152) |
 | `/code-review [effort]` | Correctness-bug review at a chosen effort; `--fix` applies findings, `--comment` posts inline PR comments (renamed from `/simplify`, 2.1.147–2.1.152) |
 | `/simplify` | Cleanup-only review (reuse, simplification, efficiency) that applies fixes (2.1.154) |
@@ -2167,6 +2176,7 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `--worktree` | Run the session in an isolated git worktree |
 | `--bg` / `--bg --exec '<cmd>'` | Start a background session (or run a shell command as one, 2.1.154) |
 | `--version` | Print Claude Code version |
+| `--safe-mode` | Start with all customizations (CLAUDE.md, plugins, skills, hooks, MCP) disabled (2.1.169) |
 | `claude agents` | Open the agent-view dashboard of all sessions (2.1.139) |
 | `claude agents --json` | Emit the live session list as JSON for scripting (2.1.145) |
 | `claude plugin init <name>` | Scaffold a new plugin in `.claude/skills` (2.1.157) |
@@ -2188,7 +2198,9 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `CLAUDE_PROJECT_DIR` | Set during hook execution (use in hook scripts) |
 | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` | Disable auto memory per session |
 | `CLAUDE_CODE_FORK_SUBAGENT=1` | Enable subagent forks |
-| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | Enable agent teams (requires v2.1.32+) |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | Enable agent teams (implicit team since 2.1.178; `TeamCreate`/`TeamDelete` removed) |
+| `CLAUDE_CODE_SAFE_MODE` (or `--safe-mode`) | Start with all customizations disabled for troubleshooting (2.1.169) |
+| `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` | Hide bundled skills/workflows/built-in commands from the model (2.1.169) |
 | `CLAUDE_CODE_NEW_INIT=1` | Multi-phase interactive `/init` |
 | `ENABLE_TOOL_SEARCH` | Toggle Tool Search (default on; off by default on Vertex) |
 | `ANTHROPIC_MODEL` | Default model for first turn |
@@ -2388,6 +2400,59 @@ New settings worth knowing: **`worktree.baseRef`** (`fresh` | `head`, 2.1.133) �
 ### Command renames to update muscle memory
 
 `/simplify` → `/code-review` (2.1.147), then `/simplify` returned as a cleanup-only review (2.1.154); `/code-review` takes an effort level and `--fix` / `--comment`. `/cost` and `/stats` merged into `/usage` (2.1.118, both remain as shortcuts). `/extra-usage` → `/usage-credits` (2.1.144). `/model` now sets the default for new sessions (press `s` for current-session-only); the old `modelPicker:setAsDefault` keybinding is renamed `modelPicker:thisSessionOnly` (2.1.153).
+
+---
+
+## Appendix G. Release Delta — 2.1.159 to 2.1.204 (Deprecations, Removals, and New Capabilities)
+
+This appendix covers everything from 2.1.159 (May 31) through 2.1.204 (July 8, 2026). It leads with what has been **deprecated and removed** — the changes most likely to break an existing setup — then the model landscape (Fable 5, Sonnet 5), then behavior changes that supersede earlier guidance, then new features by surface. As always, version numbers let you check `claude --version`.
+
+### G.1 Deprecated and removed
+
+These are the changes that can break a pipeline built against an older version. Read this section first.
+
+| Item | Status | Version | What to do |
+|---|---|---|---|
+| `CLAUDE_CODE_OPUS_4_6_FAST_MODE_OVERRIDE` | **Removed** (now a no-op) | 2.1.160 | It was deprecated in 2.1.154 and is gone. For fast mode on an older Opus, switch model with `/model claude-opus-4-6[1m]` then `/fast on`. |
+| `TeamCreate` / `TeamDelete` tools (Agent Teams) | **Removed** | 2.1.178 | Every session now has one implicit team; spawn teammates directly via the Agent tool's `name` parameter. The `team_name` parameter is accepted but ignored. |
+| The `/agents` interactive wizard | **Removed** | 2.1.198 | Ask Claude to create or manage subagents in plain language, or edit `.claude/agents/*.md` directly. |
+| Dynamic-workflow trigger keyword `workflow` | **Renamed** to `ultracode` | 2.1.160 | The bare word "workflow" no longer triggers a run; use `ultracode`, or ask in your own words. |
+| Permission mode label "default" | **Renamed** to "Manual" | 2.1.200 | UI now says "Manual"; `--permission-mode manual` / `"defaultMode": "manual"` accepted alongside the still-valid `default`. |
+| AskUserQuestion auto-continue on timeout | **Behavior removed** (no longer default) | 2.1.200 | Dialogs now wait instead of auto-continuing; opt into an idle timeout via `/config` for unattended runs. |
+| Windsurf (IDE label) | **Renamed** to Devin Desktop | 2.1.162 | Cosmetic, in `/ide`, `/terminal-setup`, `/scroll-speed`. |
+| `CLAUDE_CODE_MAX_RETRIES` unbounded value | **Capped at 15** | 2.1.186 | For unattended sessions use `CLAUDE_CODE_RETRY_WATCHDOG` (raises retries to 300 as of 2.1.199) instead. |
+| Startup "setup issues" / "command missing or broken" lines | **Removed** from startup | 2.1.183, 2.1.204 | The information moved to `/doctor` and `/status`. |
+| `/review <pr>` multi-agent behavior | **Reverted** to fast single-pass | 2.1.202 | Use `/code-review <level> <pr#>` for the multi-agent review at a chosen effort. |
+| Left-arrow closing background/diff/workflow detail views | **Changed** to Esc | 2.1.204 | Press Esc to close those views; left-arrow no longer does. |
+| JetBrains-plugin install suggestion at startup | **Removed** | 2.1.160 | Cosmetic. |
+
+Two behavior *defaults* also flipped in ways worth flagging here, because they change what an unattended run does even though nothing was "removed": **subagents now run in the background by default** (2.1.198), and the **stream idle watchdog is on by default for all providers** (2.1.196, aborts and retries after 5 minutes of stream silence — disable with `CLAUDE_ENABLE_STREAM_WATCHDOG=0`). And one telemetry default to watch on upgrade: the new `claude_code.assistant_response` OTel event (2.1.193) is redacted unless `OTEL_LOG_ASSISTANT_RESPONSES=1`, but when that variable is *unset* it follows `OTEL_LOG_USER_PROMPTS` — so a deployment that already logs prompt content will silently start logging response content too. Set `OTEL_LOG_ASSISTANT_RESPONSES=0` to keep prompts-only.
+
+### G.2 The model landscape: Fable 5 and Sonnet 5
+
+**Claude Fable 5** (2.1.170, June 9) is a Mythos-class model made available for general use in Claude Code — update to 2.1.170 or later to select it. Two Fable-specific mechanics matter for anyone who pins models: Fable 5 ships with a **1M-token context window by default**, so a `[1m]` suffix on the model name is redundant and is now **stripped automatically** (2.1.173) — relevant if your `ANTHROPIC_DEFAULT_OPUS_MODEL`-style pinning appends `[1m]`, because the same normalization logic applies and a doubled `[1m][1m]` suffix was a real bug that's since been fixed. Auto mode on Fable 5 falls back to the best available Opus classifier for organizations that don't have Opus 4.8 enabled (2.1.176), so auto mode keeps working even where Fable is the session model.
+
+**Claude Sonnet 5** (2.1.197, June 30) is now the **default model in Claude Code**, with a native 1M-token context window. If your workflow assumed Opus as the default, it no longer is — pin Opus explicitly with `/model`, an `ANTHROPIC_MODEL` env var, or agent frontmatter. (On third-party providers like Bedrock, model availability and the region-derived inference-profile prefix still govern what you actually get; `/status` shows where the region came from as of 2.1.172.)
+
+Alongside the new models, org-level model governance matured: **`availableModels`** with **`enforceAvailableModels`** (2.1.175) lets admins constrain even the Default model and prevents user/project settings from widening a managed allowlist; **organization default models** (2.1.196) show as "Org default" / "Role default" in `/model`; and a **`fallbackModel`** setting (2.1.166) configures up to three fallback models tried in order on overload — the interactive-session complement to `--fallback-model`.
+
+### G.3 Behavior changes that supersede earlier chapters
+
+Beyond the renames in G.1, a few functional changes update guidance elsewhere in this book. **Stop and SubagentStop hooks can return `hookSpecificOutput.additionalContext`** (2.1.163) to give Claude feedback and continue the turn without raising a hook error — a softer alternative to exit 2, now noted in Chapter 14. **`!` bash commands trigger Claude to respond to their output automatically** (2.1.186); set `"respondToBashCommands": false` to keep the old context-only behavior. **Hook matchers with hyphenated identifiers now exact-match** rather than substring-match (2.1.195) — a matcher like `mcp__brave-search` no longer accidentally matches siblings, so use `mcp__brave-search__.*` to match all tools from a hyphenated server. **`acceptEdits` now prompts before writing execution-granting config files** (`.npmrc`, `.yarnrc*`, `bunfig.toml`, `.bazelrc`, `.pre-commit-config.yaml`, `.devcontainer/`, shell startup files) (2.1.160), which slightly narrows how "hands-off" acceptEdits is — a good change for the trust model in Chapter 19.
+
+### G.4 New capabilities by surface
+
+**Debugging (Part VIII).** The big addition is `--safe-mode` / `CLAUDE_CODE_SAFE_MODE` (2.1.169) — a one-flag clean room that disables CLAUDE.md, plugins, skills, hooks, and MCP servers, now folded into Chapter 34. Also: `/config key=value` sets any setting from the prompt (2.1.181); `/config --help` lists the shorthand keys (2.1.183); `requiredMinimumVersion` / `requiredMaximumVersion` managed settings refuse to start outside an approved range (2.1.163); and `disableBundledSkills` / `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` hides built-ins from the model (2.1.169).
+
+**Agents.** Subagents can spawn their own subagents up to 5 levels deep (2.1.172); they run in the background by default and auto-open draft PRs when finishing worktree code work (2.1.198); the built-in Explore agent inherits the session model capped at Opus rather than running on Haiku (2.1.198); and subagents inherit the session's extended-thinking configuration (2.1.198). New permission granularity: `Tool(param:value)` rules with wildcards, e.g. `Agent(model:opus)` to block Opus subagents (2.1.178), and `Agent(type)` deny / `Agent(x,y)` allowed-type restrictions on named spawns (2.1.186). Cross-session messaging was hardened so relayed `SendMessage` traffic never carries user authority (2.1.166, 2.1.183).
+
+**Auto mode and security.** Destructive commands are now blocked by the classifier unless you asked for them — `git reset --hard`, `git checkout -- .`, `git clean -fd`, `git stash drop`, `git commit --amend` on commits the agent didn't make, and `terraform`/`pulumi`/`cdk destroy` (2.1.183). `autoMode.classifyAllShell` routes *all* Bash/PowerShell through the classifier rather than only code-execution patterns (2.1.193), denial reasons now appear in the transcript, toast, and `/permissions` (2.1.193), and subagent spawns are classifier-evaluated before launch (2.1.178). A `sandbox.credentials` setting blocks sandboxed commands from reading credential files and secret env vars (2.1.187).
+
+**Hooks and skills.** Beyond `additionalContext` (G.3): a self-hosted-runner `post-session` lifecycle hook runs after the session ends and before workspace teardown (2.1.169); `SessionStart`/`Setup`/`SubagentStart` hooks now surface stderr on exit 2 instead of hiding it (2.1.199). For skills: stacked slash invocations like `/skill-a /skill-b …` load all leading skills up to 5 (2.1.199); nested `.claude/skills` load when you work on files there, disambiguated as `<dir>:<name>` on a clash (2.1.178); frontmatter keys accept kebab/snake/camelCase and a malformed `SKILL.md` loads its body with empty metadata rather than failing silently (2.1.186); and a `$` escape lets command bodies include a literal `$` before a digit (2.1.163). A bundled `/dataviz` skill was added (2.1.198).
+
+**MCP.** `claude mcp login <name>` / `claude mcp logout <name>` authenticate servers from the CLI without the interactive `/mcp` menu, with `--no-browser` for SSH (2.1.186); remote MCP tool calls that hang now abort after 5 minutes (override `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`) (2.1.187); the session's additional working directories are exposed via MCP `roots/list` with change notifications (2.1.203); `headersHelper` re-runs and reconnects on a 401/403 (2.1.193); and a config with `url` but no `type` now gets a clear "add `\"type\": \"http\"`" error instead of a misleading one (2.1.202).
+
+**Other.** Claude in Chrome is generally available (2.1.198); `/cd` moves a session's working directory without breaking the prompt cache (2.1.169); `/rewind` can resume from before a `/clear` (2.1.191); `/plugin list` gained `--enabled`/`--disabled` filters (2.1.163); and `CLAUDE_CLIENT_PRESENCE_FILE` suppresses mobile push while you're at the machine (2.1.181).
 
 ---
 
