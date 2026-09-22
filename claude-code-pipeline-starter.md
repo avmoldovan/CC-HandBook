@@ -1,4 +1,4 @@
-# Claude Code Autonomous Pipeline — Complete Starter Kit (v4, aligned to 2.1.204 / July 2026)
+# Claude Code Autonomous Pipeline — Complete Starter Kit (v5, aligned to 2.1.280 / September 2026)
 
 A full software-development-lifecycle pipeline built on Claude Code agents, hooks, skills, and MCP servers, with debug instrumentation built in. Drop the file tree below into a project's `.claude/` directory, fill in the credentials, and you have a setup that takes a Jira ticket and turns it into a reviewed, tested, documented, deploy-ready change — with you in the loop only at the points where judgment is genuinely required, and with audit logs that explain every failure when it happens.
 
@@ -24,6 +24,15 @@ A full software-development-lifecycle pipeline built on Claude Code agents, hook
 - **AskUserQuestion no longer auto-continues** (2.1.200) — the pipeline keeps AskUserQuestion out of the unattended path and relies on hooks + auto mode, so nothing changes here, but don't add unattended AskUserQuestion calls without configuring an idle timeout in `/config`.
 - **Cleaner Stop-hook feedback:** `test_gate.sh` documents the `additionalContext` return (2.1.163) as a softer alternative to `exit 2`.
 - `startup_check.py` gains a `--safe-mode` reminder and a default-model awareness note.
+
+**What's new in v5 (aligned to Claude Code 2.1.280, September 2026):**
+- **Model landscape corrected:** the v4 note that Sonnet 5 is the default model is superseded. Opus 5.5 (`claude-opus-5-5`, 2.1.280) is the default Opus model, Fable 5.1 (`claude-fable-5-1`, 2.1.257) the default Fable model, and **Bedrock/Vertex/Claude Platform on AWS default to Opus 4.8** (2.1.207). `startup_check.py` now reports this per provider instead of assuming Sonnet 5.
+- **SessionStart matcher gains `fork`:** since 2.1.214 forked sessions report source `fork`, not `resume`, so the old `startup|resume|compact` matcher silently skipped `startup_check.py` and `session_context.py` on every `/fork` (which now also gets its own worktree, 2.1.221).
+- **Runtime concurrency bound:** `settings.json` sets `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=4` (2.1.217; default 20). Nested subagent spawning is off by default since 2.1.217, which this pipeline never relied on.
+- **`triage-sentry` pins `background: false`:** `context: fork` skills run in the background by default since 2.1.218, and this skill's Jira key must come back before the main thread continues.
+- **Audit covers the new events:** `PostModelSwitch` (2.1.251) and `DirectoryAdded` (2.1.219) are logged by `audit.sh`, so an unexpected model switch or added directory shows up in the event stream.
+- **Dead-configuration detector:** `startup_check.py` now flags keys and rules that stopped working in 2.1.205–2.1.280 — `defaultMode: bypassPermissions`/`auto` in project settings (ignored since 2.1.257), `autoMode` in `settings.local.json` (ignored since 2.1.207), `CLAUDE_CONFIG_DIR`/`TMPDIR` in project `env` (ignored since 2.1.251), `Write(...)`/`NotebookEdit(...)`/`Glob(...)` permission rules (never matched; warned since 2.1.210), `taskOutputMaxChars`/`keybindingFlavor` (no effect), `TaskOutput` in agent tool lists (tool removed in 2.1.277), and agent names containing `:` (rejected since 2.1.218).
+- **Bedrock operator checks:** warns below 2.1.211 (integer env vars written as `1e6`/`64_000` weren't parsed before then) and suggests `ANTHROPIC_BEDROCK_REGION_PREFIX` (2.1.224) and an explicit `ANTHROPIC_DEFAULT_OPUS_MODEL` when running Bedrock outside `us-*` regions.
 
 ---
 
@@ -171,6 +180,12 @@ OAuth happens on first use of each. Use `/mcp` inside Claude Code to complete th
 
 **On the `worktree.baseRef: "head"` key (2.1.133+):** by default Claude Code branches isolation worktrees from `origin/<default>`, so the bug-investigator and cve-remediator agents would *not* see your unpushed local commits. Setting `head` branches from your local `HEAD` instead, which is what you want when you're asking an agent to investigate work you haven't pushed yet. Drop this key (or set `"fresh"`) if you specifically want agents to start from a clean pushed baseline.
 
+**On the `env` block (v5, 2.1.217+):** `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` caps how many subagents run at the same time; the runtime default is 20. This kit sets 4 because concurrent Opus subagents are what trip Bedrock throttling, and a runtime-enforced ceiling is more reliable than asking the model to "not start too many at once." Raise it if your account's quotas allow, or lower it to 1 to fully serialize agents that touch the same files. Nested spawning (a subagent starting its own subagents) is off by default since 2.1.217 and this pipeline doesn't use it, so `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` is deliberately left unset. Note what the project `env` block *cannot* hold since 2.1.251: `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_TMPDIR`, `TMPDIR`, `TMP` and `TEMP` are ignored here and must be set in your shell or user settings — `startup_check.py` warns if you try.
+
+**On the SessionStart matcher `startup|resume|compact|fork` (v5, 2.1.214+):** forked sessions used to report their source as `resume`; they now report `fork`. Without the fourth value, every `/fork` — which since 2.1.221 also gets its own worktree — starts without the self-check and without the injected git/plan context. The self-check flags any SessionStart matcher that lacks `fork`.
+
+**On `PostModelSwitch` and `DirectoryAdded` (v5):** both are async audit taps into the same `audit.sh`, so they cost nothing on the hot path. `PostModelSwitch` (2.1.251) makes an unexpected model change visible in `.claude/audit.log` — the usual culprit when an overnight run's quality or cost shifts mid-session. `DirectoryAdded` (2.1.219) records when `/add-dir` widened the session's reach, which is exactly when your path guards' assumptions change. If you want to *prevent* model switches rather than log them, add a `PreModelSwitch` command hook that exits 2 unless the target matches your pinned inference-profile id.
+
 ---
 
 ## .claude/settings.json (project, committed) — updated with debug instrumentation
@@ -182,10 +197,35 @@ OAuth happens on first use of each. Use `/mcp` inside Claude Code to complete th
   "worktree": {
     "baseRef": "head"
   },
+  "env": {
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+  },
   "hooks": {
+    "PostModelSwitch": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit.sh\" PostModelSwitch",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "DirectoryAdded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/audit.sh\" DirectoryAdded",
+            "async": true
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|compact|fork",
         "hooks": [
           {
             "type": "command",
@@ -600,18 +640,170 @@ def main() -> None:
                     "workflows (/workflows) — consider upgrading."
                 )
 
-            # 2.1.197: Sonnet 5 became Claude Code's DEFAULT model. Agents in
-            # this kit pin their model explicitly, but a bare `claude` session
-            # now defaults to Sonnet 5 — pin Opus with /model or ANTHROPIC_MODEL
-            # if a task needs it.
-            if ver >= (2, 1, 197):
+            # 2.1.211: integer env vars (timeouts, budgets, retry counts)
+            # written as `1e6` or `64_000` were not parsed as intended before
+            # this release. A timeout that silently behaves as zero is one of
+            # the nastiest unattended-run failures, so flag old builds loudly.
+            if ver < (2, 1, 211):
+                warnings.append(
+                    f"Claude Code {raw} predates 2.1.211: integer env vars "
+                    "written as 1e6 or 64_000 may not parse. Use plain digits "
+                    "or upgrade."
+                )
+
+            # 2.1.217: nested subagent spawning off by default; concurrency
+            # cap (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS) exists from here on.
+            if ver < (2, 1, 217):
                 info.append(
-                    "Default model is Sonnet 5 (2.1.197+). This kit's agents "
-                    "pin their own model; set ANTHROPIC_MODEL to pin the main "
-                    "session if you need Opus."
+                    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS (set in settings.json) "
+                    "is only honored from 2.1.217 — upgrade for the runtime bound."
+                )
+
+            # Default model by provider (supersedes the v4 "Sonnet 5 default"
+            # note). First-party: Opus 5.5 is the default Opus model as of
+            # 2.1.280. Bedrock/Vertex/Claude Platform on AWS: Opus 4.8 since
+            # 2.1.207, independent of the first-party lineup.
+            on_cloud = any(os.environ.get(k) == "1" for k in (
+                "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+                "CLAUDE_CODE_USE_FOUNDRY"))
+            pinned = (os.environ.get("ANTHROPIC_MODEL")
+                      or os.environ.get("ANTHROPIC_DEFAULT_MODEL"))
+            if pinned:
+                info.append(f"Main-session model pinned via env: {pinned}")
+            elif on_cloud and ver >= (2, 1, 207):
+                info.append(
+                    "Cloud provider without a pinned model: sessions start on "
+                    "Opus 4.8 (Bedrock/Vertex default since 2.1.207). Pin with "
+                    "ANTHROPIC_MODEL or ANTHROPIC_DEFAULT_MODEL (2.1.236+)."
+                )
+            elif ver >= (2, 1, 280):
+                info.append(
+                    "No pinned model: first-party default Opus is Opus 5.5 "
+                    "(2.1.280). This kit's agents pin their own models."
                 )
     except Exception:
         pass  # Version check is best-effort
+
+    # --- Dead-configuration detector (2.1.205–2.1.280) ---
+    # Keys and rules below stopped working or changed meaning. Each silently
+    # alters an unattended run after an upgrade, so surface them at startup.
+    def _load(path: Path) -> dict:
+        try:
+            return json.loads(path.read_text()) if path.is_file() else {}
+        except (json.JSONDecodeError, OSError):
+            return {}
+
+    for fname in ("settings.json", "settings.local.json"):
+        cfg = _load(claude_dir / fname)
+        if not cfg:
+            continue
+        perms = cfg.get("permissions", {}) or {}
+
+        # 2.1.257: bypassPermissions (and auto) ignored in project settings.
+        mode = perms.get("defaultMode") or cfg.get("defaultMode")
+        if mode in ("bypassPermissions", "auto"):
+            warnings.append(
+                f".claude/{fname}: defaultMode '{mode}' is ignored in project "
+                "settings (2.1.257+). Session will start in Manual mode. Use "
+                "--permission-mode or ~/.claude/settings.json."
+            )
+
+        # 2.1.207: autoMode rules not read from settings.local.json.
+        if fname == "settings.local.json" and "autoMode" in cfg:
+            warnings.append(
+                ".claude/settings.local.json: autoMode rules are ignored "
+                "(2.1.207+). Move them to ~/.claude/settings.json."
+            )
+
+        # 2.1.251: project env cannot set these.
+        env = cfg.get("env", {}) or {}
+        dead_env = [k for k in ("CLAUDE_CONFIG_DIR", "CLAUDE_CODE_TMPDIR",
+                                "TMPDIR", "TMP", "TEMP") if k in env]
+        if dead_env:
+            warnings.append(
+                f".claude/{fname}: env {', '.join(dead_env)} ignored in "
+                "project settings (2.1.251+). Set in shell/user/managed settings."
+            )
+        if "TASK_MAX_OUTPUT_LENGTH" in env:
+            warnings.append(
+                f".claude/{fname}: TASK_MAX_OUTPUT_LENGTH has no effect "
+                "(TaskOutput removed in 2.1.277)."
+            )
+
+        # Keys with no effect any more.
+        for key, why in (("taskOutputMaxChars", "no effect since 2.1.277"),
+                         ("keybindingFlavor", "no effect since 2.1.261")):
+            if key in cfg:
+                info.append(f".claude/{fname}: '{key}' — {why}; remove it.")
+
+        # 2.1.210 / 2.1.260: permission rules that never matched.
+        for bucket in ("allow", "deny", "ask"):
+            for rule in perms.get(bucket, []) or []:
+                if not isinstance(rule, str):
+                    continue
+                if rule.startswith(("Write(", "NotebookEdit(", "Glob(")):
+                    warnings.append(
+                        f".claude/{fname}: {bucket} rule '{rule}' never matches "
+                        "file checks (2.1.210). Rewrite as Edit(...) or Read(...)."
+                    )
+                if ")" in rule and rule.rstrip()[-1] != ")":
+                    warnings.append(
+                        f".claude/{fname}: {bucket} rule '{rule}' has text after "
+                        "')' and is invalid (2.1.260+)."
+                    )
+
+        # 2.1.214: SessionStart must include `fork` to run on forked sessions.
+        for entry in (cfg.get("hooks", {}) or {}).get("SessionStart", []):
+            m_ = entry.get("matcher", "")
+            if m_ and "fork" not in m_.split("|"):
+                warnings.append(
+                    f".claude/{fname}: SessionStart matcher '{m_}' lacks "
+                    "'fork' — forked sessions (2.1.214+) skip this hook."
+                )
+
+    # Agent files: removed tool and reserved characters.
+    agents_dir_ = claude_dir / "agents"
+    if agents_dir_.is_dir():
+        for af in agents_dir_.glob("*.md"):
+            try:
+                text = af.read_text()
+            except OSError:
+                continue
+            head = text.split("---", 2)[1] if text.startswith("---") else ""
+            if "TaskOutput" in head:
+                warnings.append(
+                    f"agents/{af.name}: lists TaskOutput, removed in 2.1.277."
+                )
+            for line in head.splitlines():
+                if line.startswith("name:") and ":" in line.split(":", 1)[1]:
+                    warnings.append(
+                        f"agents/{af.name}: agent names containing ':' are "
+                        "rejected (2.1.218+)."
+                    )
+
+    # --- Bedrock operator checks (2.1.224+) ---
+    # Cross-region inference-profile ids must match the deployment region; a
+    # `us.`-prefixed id fails outside US regions. Make the prefix explicit.
+    if os.environ.get("CLAUDE_CODE_USE_BEDROCK") == "1":
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION", "")
+        if region and not region.startswith("us-") \
+                and not os.environ.get("ANTHROPIC_BEDROCK_REGION_PREFIX"):
+            info.append(
+                f"Bedrock in {region}: consider ANTHROPIC_BEDROCK_REGION_PREFIX "
+                "(2.1.224+) so inference-profile ids don't derive the wrong prefix."
+            )
+        for var in ("ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
+            val = os.environ.get(var, "")
+            if not val:
+                info.append(
+                    f"{var} unset: subagents asking for that family resolve "
+                    "implicitly. Pin it to your exact inference-profile id."
+                )
+            elif region and val.startswith("us.") and not region.startswith("us-"):
+                warnings.append(
+                    f"{var}={val} is a US profile but AWS_REGION={region}; "
+                    "requests will fail. Use the region-matching prefix."
+                )
 
     # --- Troubleshooting reminder ---
     # If this pipeline misbehaves in a way you can't localize, the fastest
@@ -625,6 +817,13 @@ def main() -> None:
     # run doesn't silently fall back to interactive permission prompts.
     if os.environ.get("CLAUDE_CODE_ENABLE_AUTO_MODE") == "1":
         info.append("Auto mode is enabled (CLAUDE_CODE_ENABLE_AUTO_MODE=1).")
+        # 2.1.278: the classifier runs server-side by default on Bedrock,
+        # Vertex, Foundry and gateways (no classifier-overhead billing).
+        if os.environ.get("CLAUDE_CODE_AUTO_MODE_SERVER") == "0":
+            info.append(
+                "Auto mode classifier forced local (CLAUDE_CODE_AUTO_MODE_SERVER=0); "
+                "check /status 'Auto mode server' for billing implications."
+            )
     else:
         info.append(
             "Auto mode is OFF. For unattended Bedrock/Vertex/Foundry runs on "
@@ -1185,6 +1384,9 @@ jq -c 'select(.event == "SessionStart" and .payload.hookSpecificOutput.additiona
   .claude/audit.log
 ```
 
+
+Since v5 the self-check also acts as an upgrade audit. After bumping Claude Code, open a fresh session and read the `STARTUP CHECK — WARNINGS` block first: anything tagged with a 2.1.2xx version is a key, rule or agent field that stopped working in that release, and each line names the replacement. Lines under INFO about Bedrock prefixes and unpinned model families are advisory, but on a non-US region they are usually the explanation for a subagent that 'randomly' fails to start.
+
 ### Log rotation
 
 The audit log grows. Add a daily rotation if you run heavily:
@@ -1302,6 +1504,7 @@ description: Triages a Sentry error by pulling the issue, finding responsible co
 allowed-tools: mcp__sentry__get_issue mcp__sentry__list_events mcp__atlassian__createJiraIssue Read Grep Glob
 context: fork
 agent: Explore
+background: false
 ---
 
 Investigate Sentry issue $ARGUMENTS:
