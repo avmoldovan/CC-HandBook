@@ -34,7 +34,7 @@ Out of scope: prompt engineering inside a single message; programming the Claude
 
 Claude Code changes fast. Features that were experimental six months ago are stable now; features stable today may be deprecated in a year. Where exact version-dependent behavior matters, the book calls it out and gives you the inspection command to verify your version. Where the conceptual model has been stable, the book just states it. The mental model and architectural patterns are durable even when specific commands rename themselves.
 
-This edition is current to **Claude Code 2.1.204 (July 8, 2026)**. It was written around **Claude Opus 4.8** as the working model; note that as of 2.1.197 the *default* model in Claude Code is now **Claude Sonnet 5** (1M context), and **Claude Fable 5** (a Mythos-class model) is selectable since 2.1.170 — pick your model explicitly with `/model` if you depend on Opus. Changes between 2.1.132 and 2.1.158 are folded into the chapters and collected in **Appendix F — Release Delta**; everything from 2.1.159 through 2.1.204, including what has been **deprecated and removed**, is in **Appendix G**. If you're reading this later still, run `claude --version` and skim Appendix G first.
+This edition is current to **Claude Code 2.1.280 (September 2026)**. The model landscape has moved three times since the previous edition: **Claude Opus 5** (2.1.219) and then **Claude Opus 5.5** (`claude-opus-5-5`, 2.1.280) each became the default Opus model, **Claude Fable 5.1** (`claude-fable-5-1`, 2.1.257) replaced Fable 5 as the default Fable model, and the plan-level default moved back to Opus for Pro and Team Standard (2.1.280). On Bedrock, Vertex and Claude Platform on AWS the default has been **Opus 4.8** since 2.1.207, so a cloud-provider deployment does not automatically follow the first-party lineup — pin your model explicitly with `/model`, `ANTHROPIC_MODEL`, the new `ANTHROPIC_DEFAULT_MODEL` (2.1.236), or agent frontmatter. Changes between 2.1.132 and 2.1.158 are in **Appendix F**; 2.1.159 through 2.1.204 are in **Appendix G**; and 2.1.205 through 2.1.280 — including every deprecated or removed setting, command, tool and behavior — are in **Appendix H**. A few statements in Appendix G have since been superseded; they are marked in place. If you're reading this later still, run `claude --version` and skim Appendix H first.
 
 ---
 
@@ -74,7 +74,7 @@ This edition is current to **Claude Code 2.1.204 (July 8, 2026)**. It was writte
 - [Chapter 17. Where Agents Fit in the Stack](#chapter-17-where-agents-fit-in-the-stack)
 - [Chapter 18. Subagents, Forks, and Agent Teams](#chapter-18-subagents-forks-and-agent-teams)
 - [Chapter 19. The Trust Model for Autonomous Agents](#chapter-19-the-trust-model-for-autonomous-agents)
-- [Chapter 20. When to Use Agents — and When Not To](#chapter-20-when-to-use-agents-and-when-not-to)
+- [Chapter 20. When to Use Agents — and When Not To](#chapter-20-when-to-use-agents--and-when-not-to)
 
 ### Part VI — Building the Pipeline
 - [Chapter 21. The Complete Cast of Agents](#chapter-21-the-complete-cast-of-agents)
@@ -105,8 +105,9 @@ This edition is current to **Claude Code 2.1.204 (July 8, 2026)**. It was writte
 - [Appendix C. Frontmatter Field Reference](#appendix-c-frontmatter-field-reference)
 - [Appendix D. The Companion Starter Kit](#appendix-d-the-companion-starter-kit)
 - [Appendix E. Further Reading](#appendix-e-further-reading)
-- [Appendix F. Release Delta — Changes Since 2.1.132](#appendix-f-release-delta--changes-since-2-1-132)
-- [Appendix G. Release Delta — 2.1.159 to 2.1.204 (Deprecations, Removals, and New Capabilities)](#appendix-g-release-delta--2-1-159-to-2-1-204-deprecations-removals-and-new-capabilities)
+- [Appendix F. Release Delta — Changes Since 2.1.132](#appendix-f-release-delta--changes-since-21132)
+- [Appendix G. Release Delta — 2.1.159 to 2.1.204 (Deprecations, Removals, and New Capabilities)](#appendix-g-release-delta--21159-to-21204-deprecations-removals-and-new-capabilities)
+- [Appendix H. Release Delta — 2.1.205 to 2.1.280 (Deprecations, Removals, Changed Defaults, and New Capabilities)](#appendix-h-release-delta--21205-to-21280-deprecations-removals-changed-defaults-and-new-capabilities)
 
 ---
 
@@ -225,6 +226,10 @@ CLAUDE.md supports `@path/to/file` imports up to five hops deep. Imports load *a
 
 If you want lazy loading, that's a skill or a path-scoped rule — not an import.
 
+### AGENTS.md and CLAUDE.md hygiene (2.1.206–2.1.277)
+
+As of 2.1.277, in a project that has **no** CLAUDE.md, Claude Code reads `AGENTS.md` instead; which file wins is configurable under "Project instructions" in `/config`. Two caveats: the fallback only triggers when CLAUDE.md is absent (a repo with both still uses CLAUDE.md), and the feature is **not yet available on Bedrock, Vertex or Foundry** — on a Bedrock session an `AGENTS.md`-only repository gets no project instructions at all, so keep a CLAUDE.md (it can simply `@AGENTS.md`-import the shared file). `/doctor` also gained a check that proposes trimming checked-in CLAUDE.md files by cutting content Claude could derive from the codebase (2.1.206) — a useful second opinion on the "keep it under ~80 lines" advice above. And a managed CLAUDE.md delivered through server-managed settings (`claudeMd`) no longer triggers the security-approval dialog (2.1.260), so organizations can push policy text without interrupting every session.
+
 ---
 
 ## Chapter 4. Path-Scoped Rules
@@ -260,6 +265,8 @@ The mental model: **CLAUDE.md is what you teach Claude. Auto memory is what Clau
 The right division of labor: **routing rules and standing instructions go in CLAUDE.md, because they need to fire every session. Learned facts and incidental discoveries go in auto memory, because they're discovered, not designed.** A common mistake is putting routing rules in auto memory — auto memory is preloaded too, but only its first 200 lines, and topic files don't preload at all. Putting "always check for `MEMORY.md` at session start" in auto memory is a bet that it'll survive in the top 200 lines forever, which it won't.
 
 You can browse, edit, and delete auto memory at any time with `/memory` from inside a session. Disable it per-session with `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` or via `autoMemoryEnabled: false` in settings. For most setups, leave it on — the cost is negligible and the learnings compound.
+
+Two auto-memory details changed recently. Memory files now carry an ISO `modified` timestamp in their frontmatter (2.1.214), which makes stale entries easy to spot, and the MEMORY.md truncation warning now says how many lines were cut and where the cut starts (2.1.268) — so the 200-line/25KB cap discussed above is no longer silent. If you use `permissions.blockReadsOutsideWorkingDirectories`, a memory directory chosen by a repository's own settings is not loaded, recalled, indexed or used for extraction (fixed 2.1.273), which closes a path by which a cloned repo could steer your memory.
 
 ---
 
@@ -463,6 +470,16 @@ A few capabilities have been added to the skill surface since this chapter's cor
 
 One reliability fix worth knowing if you run subagents: through 2.1.132, subagents sometimes failed to discover project/user/plugin skills via the Skill tool; that was fixed in 2.1.133. If you saw "subagent can't find the skill that the main session can," upgrading past 2.1.133 resolves it.
 
+### Skill behavior changes in 2.1.205–2.1.280
+
+The most consequential change is that **`context: fork` skills run in the background by default** (2.1.218). A forked skill used to block the main thread until it returned; now the main agent keeps going and receives the result later. For a skill whose output the next step depends on — a triage skill that returns a ticket key, a spec-checker that gates implementation — add `background: false` to its frontmatter to restore the synchronous behavior. Forked-skill output also streams properly in stream-json and with `--forward-subagent-text` (fixed 2.1.265 and 2.1.275), which matters if an external orchestrator parses the stream.
+
+Under **auto mode**, a skill's or slash command's inline `` !`command` `` preprocessing now follows *default-mode* permission rules rather than the classifier (2.1.271); a command no rule decides runs as a reviewed tool call. If your skill bodies rely on `` !`git diff --staged` ``-style injection, make sure those commands are covered by allow rules, or they will stop and ask. Relatedly, when Claude tries to invoke a skill marked `disable-model-invocation`, it is now told to ask you to run it rather than replicating the workflow by hand (2.1.222) — the flag is finally a hard boundary rather than a hint.
+
+Frontmatter got more forgiving: booleans accept `yes`/`no`/`on`/`off`/`1`/`0` in any case (2.1.218), and plugins accept `"."` as a `skills` path (2.1.221). Plugin skills can now be found by their bare name when it is unambiguous (2.1.265, 2.1.269). A new **`/skill-doctor`** command (2.1.261) shows which loaded skills go unused and what they cost in context — the direct tool for pruning a skill catalog that has grown past its listing budget.
+
+**Account skill sync** is new and on by default for claude.ai-signed-in terminals: skills and plugins enabled on your claude.ai account now sync into terminal sessions (2.1.275), named `anthropic-skills:<name>` in cloud sessions (2.1.269). Opt out with `syncClaudeAiSkills: false` / `syncClaudeAiPlugins: false`. Edits to files in the synced folder are not saved back to your account (2.1.275). This does not affect Bedrock sessions authenticated with AWS credentials, but it does mean a laptop that is *also* signed in to claude.ai can load skills the project never declared — worth knowing when a skill appears in `/skills` that isn't in `.claude/skills/`. Two fixes close long-standing surprises: project skills from the main repository now load in `--worktree` sessions even when `.claude/skills` is untracked (2.1.277), and a `manifest.json` in `~/.claude/skills/` no longer causes the listed skills to be moved to `.trash/` (2.1.280). Finally, `/cd` now loads the new directory's skills, agents, hooks and `.mcp.json` immediately rather than on the next resume (2.1.246).
+
 ---
 
 ## Chapter 9. The Skill-Creator Workflow
@@ -553,6 +570,18 @@ For a team, the canonical pattern is a private git repo containing a marketplace
 
 **Plugin-provided subagents silently ignore `hooks`, `mcpServers`, and `permissionMode` fields.** For security reasons, those fields are honored only when the agent is defined in `.claude/agents/` or `~/.claude/agents/`. So for your most-trusted agents (the ones doing real work with full autonomy), define them at project or user scope, not in a shared plugin. Plugins are for distribution; project-scope is for trust.
 
+### Plugin changes in 2.1.205–2.1.280
+
+The plugin system changed more in this window than any other layer, mostly in ways that make team distribution safer and more scriptable.
+
+**Sources.** Marketplaces on GitLab now work like GitHub ones: bare `gitlab.com` repo URLs, including nested subgroups, clone directly (2.1.232), which removes the need to mirror an enterprise GitLab marketplace to GitHub. Two new source types arrived: `archive` installs a plugin from a zip over HTTPS with optional SHA-256 pinning, no git or npm required (2.1.224), and `command` sources let a local program print the plugin directory, re-resolved every session (2.1.229). npm-sourced plugins are now fetched with `npm pack --ignore-scripts` and integrity-verified (2.1.275) — **a package's install scripts no longer run**, so a plugin that depended on a `postinstall` step must ship its built artifacts. Plugin and marketplace clones leave Git LFS files as pointers (2.1.274); run `git lfs pull` in the checkout if a plugin needs them. `--plugin-dir` can now point at a *folder of plugins* and picks up children as they are added or removed (2.1.265).
+
+**Activation.** Plugins installed from `/plugin` activate immediately when safe (2.1.221), and install, enable and disable take effect when you close the menu (2.1.268) — `/reload-plugins` is **no longer needed afterwards** in the interactive flow, though it remains available and now also works in headless and SDK sessions (2.1.260). `/plugin install <plugin> --marketplace <source>` offers to add the marketplace first (2.1.275), and `/plugin install` refreshes a stale catalog before reporting "not found" (2.1.221).
+
+**Automation.** Every lifecycle command gained `--json` (`install`, `uninstall`, `update`, `enable`, `disable`, 2.1.268; `validate`, 2.1.259), and `claude plugin list --json` rows carry `errorDetails`/`noteDetails`. `--accept-command <sha256>` (2.1.271) accepts exactly the command a previous `--json` run displayed, instead of a blanket `-y` — the right primitive for a CI step that installs a pinned team plugin without blindly approving whatever it asks. **`claude plugin eval`** (2.1.269) runs a plugin's eval suite and produces scored, reproducible JSON and HTML reports, which finally gives plugins the same measure-before-you-ship loop that skill-creator gives individual skills.
+
+**Governance and security.** Marketplaces whose names imitate a reserved marketplace are refused, and stop loading if already added (2.1.280). `strictKnownMarketplaces` and `blockedMarketplaces` accept owner wildcards like `"owner/*"` (2.1.223), and one malformed entry no longer silently disables the whole policy (fixed 2.1.277). Tokens embedded in git or marketplace URLs are redacted from messages and logs (2.1.268, 2.1.275). Display metadata now prefers the marketplace entry over `plugin.json` (2.1.265). And, as noted for skills, **plugins enabled on your claude.ai account now sync into terminal sessions** signed in with that account (2.1.275); opt out with `syncClaudeAiPlugins: false`.
+
 ---
 
 ## Chapter 11. MCP Servers
@@ -615,6 +644,16 @@ A handful of changes since 2.1.121 are worth folding into how you configure serv
 **Paginated `tools/list` is fully consumed** (fixed 2.1.144): servers that returned tools across multiple pages previously had everything past page one silently dropped. If a server's tool was "defined but never callable," this was often why.
 
 Two operational notes: `/mcp` Reconnect now picks up `.mcp.json` edits without a full restart (2.1.139), and `workspace` is a reserved server name as of 2.1.128 — a server named `workspace` is skipped with a warning, so rename it.
+
+### MCP changes in 2.1.205–2.1.280
+
+**Protocol and client generation — a Bedrock-specific default change.** As of 2.1.274, Bedrock, Vertex, Foundry and telemetry-disabled installs use the **v2 MCP client and MCP 2026-07-28 protocol negotiation** with direct HTTP servers by default, as first-party installs already did. Most servers won't notice, but if an older in-house server misbehaves after upgrading, the opt-outs are `MCP_SDK_GENERATION=v1` or `MCP_PROTOCOL_NEGOTIATION=legacy`. Servers configured as `http` that only speak the legacy HTTP+SSE transport now fall back to SSE as the spec describes (fixed 2.1.265, extended to 4xx first responses in 2.1.274).
+
+**Timeouts finally behave.** A per-server `request_timeout_ms` in `.mcp.json` or `--mcp-config` was ignored in fresh sessions, pinning long tools at the 60-second default (fixed 2.1.206), and Streamable HTTP tool calls timed out after about five minutes even with a longer per-server `timeout` (fixed 2.1.274). `claude mcp serve` now sends a progress update every 30 seconds during long calls so client idle timeouts don't fire (2.1.271). For headless runs, `CLAUDE_CODE_MCP_STARTUP_WAIT_MS` (2.1.274) bounds how long the first turn waits for MCP servers to connect (`0` = don't wait) — useful when an external orchestrator enforces its own budget.
+
+**Removed/changed configuration.** `"type": "sdk"` MCP entries in `.mcp.json`, settings, plugins or agent files are now **skipped with a warning** (2.1.274); only an SDK host application can register in-process servers. Tool descriptions and server instructions are capped at 2,048 characters per server, adjustable with `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` (2.1.280). On the managed side, `allowedMcpServers` now governs **only servers users add** (2.1.259) — a server in `managed-mcp.json` that your allowlist used to filter out will load after upgrade, so use `deniedMcpServers` to keep it off; `managedMcpServers` (2.1.259) lets an organization ship HTTP/SSE servers to every user; and an unreadable `managed-mcp.json` now keeps exclusive control and warns rather than being ignored (2.1.271).
+
+**Visibility.** `claude mcp list` and `/mcp` show the HTTP status and error text when a server fails (2.1.219) and show disabled servers as `⊘ Disabled` instead of health-checking them (2.1.238). A notification now fires when a server disconnects mid-session and reconnection gives up (2.1.273), and a 403 `insufficient_scope` is reported as missing permissions rather than an expired login (2.1.274). On Bedrock and other telemetry-disabled sessions, Claude is now *told* when a configured server failed to connect, instead of concluding its tools don't exist (2.1.247) — which removes a whole class of "the agent improvised because the Atlassian tools weren't there" failures. Secrets resolved from `${VAR}` placeholders are redacted from errors and listings (2.1.268, 2.1.274).
 
 ### Security non-negotiables
 
@@ -774,7 +813,21 @@ A new **`MessageDisplay`** hook event (2.1.152) fires as assistant message text 
 
 **`type: "mcp_tool"`** (2.1.118) lets a hook invoke an MCP tool directly, and **`hookSpecificOutput.updatedToolOutput`** (generalized to all tools in 2.1.121) lets a PostToolUse hook rewrite tool output before Claude sees it. PostToolUse input also carries `duration_ms` (2.1.119) for timing-based gates.
 
-One configuration caveat surfaced in 2.1.142: a `prompt`- or `agent`-type hook attached to `SessionStart`, `Setup`, or `SubagentStart` is now rejected with a clear "use a command-type hook instead" error. Those early-lifecycle events run before there's a conversation for a model-based hook to evaluate, so keep them `command`-type.
+One configuration caveat surfaced in 2.1.142: a `prompt`- or `agent`-type hook attached to `SessionStart`, `Setup`, or `SubagentStart` is now rejected with a clear "use a command-type hook instead" error. Those early-lifecycle events run before there's a conversation for a model-based hook to evaluate, so keep them `command`-type. The same rule was extended to **`PermissionRequest` in 2.1.280**: an agent-type hook there never could allow or deny the request, so it now errors and points you to `command` or `http` hooks.
+
+### Hook changes in 2.1.205–2.1.280
+
+Three new events arrived. **`PreModelSwitch` and `PostModelSwitch`** (2.1.251) let a hook block, confirm, or annotate a model switch — the deterministic way to stop an unattended session from being moved off your pinned Opus profile, and a natural thing to log in the audit trail. **`DirectoryAdded`** (2.1.219) fires after `/add-dir` (or the SDK's `register_repo_root`) adds a working directory mid-session, which is where a path-guard hook should re-read its allowlist.
+
+Several existing semantics shifted, and two of them can silently change what your matchers match:
+
+**SessionStart reports `"fork"`** for sessions that begin as a fork, instead of `"resume"` (2.1.214). A SessionStart hook with `"matcher": "startup|resume|compact"` no longer runs on forked sessions — and since `/fork` now creates its own worktree (2.1.221), those are exactly the sessions where your context-injection hook matters. Add `fork` to the matcher. SessionStart resume hooks also now receive the session's staleness and an estimated re-cache cost (2.1.251).
+
+**Single-segment `dir/**` in a hook `if:` condition now matches only `<cwd>/dir`** (2.1.214). Write `**/dir/**` if you meant any depth. Permission `deny`/`ask` rules keep their any-depth behavior, so the same glob now means different things in a hook condition and a permission rule — worth auditing if you copy patterns between them.
+
+**Hook timeouts are no longer reported to the model as a user rejection** (fixed 2.1.210). Before that, a slow hook in an unattended run could make Claude stop and wait for a human who wasn't there. **A PreToolUse `ask` now floors the decision at a prompt even in auto mode** for unsandboxed Bash (fixed 2.1.211) — the auto-mode classifier can no longer override a hook that asked. **`SubagentStop` hooks with a specific `matcher` no longer fire for subagents with an empty agent type** (fixed 2.1.275), which removes one of the reasons Chapter 35's worked example gated on agent name inside the script. **Blocking Stop hooks no longer drop the model's reasoning** from the blocked turn (fixed 2.1.259), and repeat blocks from a Stop *prompt* hook now send a 500-character label instead of re-sending the whole prompt each time (2.1.274). **`PermissionRequest` hooks now fire in `--print` mode** (fixed 2.1.268), and `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS` finally extends SessionEnd hooks that have no per-hook `timeout` (fixed 2.1.268; previously they were cancelled after 1.5 seconds). Background sessions whose `PermissionRequest` or `PreToolUse` hook prints an invalid answer now surface the hook name and schema error in `claude agents` rather than waiting silently (2.1.248).
+
+On the ergonomics side, the spinner now shows which SessionStart, UserPromptSubmit, PreToolUse or SessionEnd hook is running and for how long, and Esc cancels a prompt waiting on a SessionStart hook (2.1.271); `--continue`/`--resume` no longer wait on SessionStart hooks before showing the conversation (2.1.268); and the `hook_execution_complete` OpenTelemetry event now carries output sizes and a count of oversized outputs spilled to a file (2.1.280).
 
 ### Concrete examples
 
@@ -817,7 +870,7 @@ A SessionStart hook that injects git context (stdout becomes Claude's context):
 {
   "hooks": {
     "SessionStart": [{
-      "matcher": "startup|resume|compact",
+      "matcher": "startup|resume|compact|fork",
       "hooks": [{
         "type": "command",
         "command": "echo \"Branch: $(git branch --show-current). Uncommitted: $(git status --porcelain | wc -l) files.\""
@@ -909,7 +962,7 @@ Here's a single settings file that covers auto-format, dangerous-command blockin
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup|resume|compact",
+        "matcher": "startup|resume|compact|fork",
         "hooks": [
           {
             "type": "command",
@@ -998,7 +1051,7 @@ Here's a single settings file that covers auto-format, dangerous-command blockin
 }
 ```
 
-A few important things in there. First, the `SessionStart` hook uses three matchers (`startup|resume|compact`) — that's the trick to also re-inject context after auto-compact fires, which is when most "Claude forgot the plan" complaints happen. Second, the `PostToolUse` format hook runs `async: true`, so it doesn't block Claude's next turn — the file gets formatted in the background. Third, Stop has *two* hooks defined and they run in parallel; one is the test gate, one is the report gate, each with its own `stop_hook_active` guard internally. Fourth, `skillListingBudgetFraction: 0.02` doubles the budget for skill descriptions — useful when you have a lot of skills and want fuller descriptions in context.
+A few important things in there. First, the `SessionStart` hook uses four matchers (`startup|resume|compact|fork` — `fork` is needed since 2.1.214, when forked sessions stopped reporting as `resume`) — that's the trick to also re-inject context after auto-compact fires, which is when most "Claude forgot the plan" complaints happen. Second, the `PostToolUse` format hook runs `async: true`, so it doesn't block Claude's next turn — the file gets formatted in the background. Third, Stop has *two* hooks defined and they run in parallel; one is the test gate, one is the report gate, each with its own `stop_hook_active` guard internally. Fourth, `skillListingBudgetFraction: 0.02` doubles the budget for skill descriptions — useful when you have a lot of skills and want fuller descriptions in context.
 
 ### The settings layers you actually use
 
@@ -1013,6 +1066,20 @@ Managed settings at the OS-specific managed path for org-wide rules that individ
 ### One important gotcha
 
 Settings changes don't hot-apply mid-session. Claude Code snapshots hooks at session start and prompts you to review them in `/hooks` if they change. This is a security feature (a compromised repo can't inject malicious hooks mid-session) — restart Claude Code to pick up changes.
+
+### Settings that repository files can no longer set (2.1.207–2.1.260)
+
+A consistent theme of recent releases is that **a repository cannot grant itself autonomy**. Several keys that used to work in project-level files are now ignored there, and each one can silently change a pipeline's behavior after an upgrade:
+
+`defaultMode: "bypassPermissions"` in `.claude/settings.json` or `.claude/settings.local.json` is **ignored** as of 2.1.257, the same way `"auto"` already was. Set it in `~/.claude/settings.json`, in managed settings, or pass `--permission-mode` on the command line. `autoMode` rules are **no longer read from `.claude/settings.local.json`** (2.1.207); put them in `~/.claude/settings.json`. A project's `env` block can no longer set `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_TMPDIR`, `TMPDIR`, `TMP` or `TEMP` (2.1.251) — set those in your shell, user or managed settings. `sandbox.ripgrep` is honored only from user, managed and `--settings` sources (2.1.232).
+
+If your overnight pipeline launched with `claude` in a repo whose committed settings asked for bypass or auto mode, it will now start in Manual mode and stop at the first prompt. The fix is to move the posture to the launch command (`claude --permission-mode auto …`) or to user scope, and to have the startup self-check (Chapter 36) flag the dead key.
+
+### Permission-rule semantics that changed
+
+`Write(path)`, `NotebookEdit(path)` and `Glob(path)` rules now produce a startup warning (2.1.210): file permission checks match `Edit(path)` and `Read(path)` rules, so write-protection rules should be written as `Edit(...)`. A rule with text after the closing parenthesis, such as `Bash(ls) x`, used to be silently ignored and is now reported as an invalid setting (2.1.260). Bash allow rules with a wildcard *before* the subcommand, like `Bash(git * main)`, trigger a startup warning because they also match options inserted before the subcommand (2.1.246). A deny or ask rule beginning with `!` now applies only within the settings source that wrote it, and a bare `!` negation is ignored (2.1.269). "Always allow" approvals are saved at the **repository root**, so approvals granted inside a git worktree persist across worktrees (2.1.211). Two attempts to apply `Read()`/`Edit()` deny rules to un-analyzable Bash lines were introduced and then **reverted** (2.1.259 → 2.1.260, 2.1.268 → 2.1.273) — so `Read(./**/build/**)` does *not* block `npm run build`, and you should not rely on file-path deny rules to constrain arbitrary shell commands.
+
+For unattended hosts, `--permission-prompts none` (2.1.259) denies anything that would prompt while the active mode — including auto mode — keeps deciding everything else, which is the correct behavior for a watchdog-supervised run: a stuck prompt becomes a denial the agent can route around, not a hang. `--restricted` (or `CLAUDE_CODE_RESTRICTED=1`, 2.1.248) removes command-running tools and `WebFetch` and keeps file tools inside the working directory, for read-mostly review agents. And `permissions.blockReadsOutsideWorkingDirectories` (2.1.257) blocks file reads outside the session's directories.
 
 ---
 
@@ -1133,11 +1200,11 @@ The right rule: **start as a skill, promote to an agent when the work becomes no
 
 Three forms of delegation exist and they're worth keeping straight.
 
-A **subagent** is a scoped specialist invoked through the Task tool. It has its own fully-defined system prompt (the markdown body of `.claude/agents/<name>.md`), its own tool list, its own model. It costs context because the system prompt loads fresh.
+A **subagent** is a scoped specialist invoked through the Task tool. It has its own fully-defined system prompt (the markdown body of `.claude/agents/<name>.md`), its own tool list, its own model. It costs context because the system prompt loads fresh. (Two Task-tool changes to know: the tool's `mode` parameter was **deprecated and is now ignored** as of 2.1.212 — subagents inherit the parent session's permission mode by default, so set `permissionMode` in the agent file if you need something different — and the separate **`TaskOutput` tool was removed** in 2.1.277; Claude now reads a background task's output file with Read, and the `taskOutputMaxChars` setting and `TASK_MAX_OUTPUT_LENGTH` no longer do anything.)
 
 A **fork** is cheaper: it reuses the parent's system prompt and tool definitions, so the first request hits the parent's prompt cache. Use forks when you want the same setup as the parent but isolated execution — speculative refactors, "try this and report back" tasks. Enable with `CLAUDE_CODE_FORK_SUBAGENT=1` or pass `isolation: "worktree"` when spawning. A fork cannot spawn further forks.
 
-An **agent team** (the experimental Agent Teams feature, behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) coordinates multiple long-lived sessions with a team lead. Teammates can message each other directly through a mailbox system, not just report back to the lead. Use it for genuinely parallel work across separate workstreams (refactor the API layer while migrating the database while updating tests) where the workers need to coordinate. **Two changes to know (2.1.178):** the `TeamCreate` and `TeamDelete` tools were *removed* — with the flag set, every session now has one implicit team, so you spawn teammates directly with the Agent tool's `name` parameter and skip the setup step (the old `team_name` parameter is still accepted but ignored). Separately, the broader capability grew: as of 2.1.172 subagents can spawn their *own* subagents up to 5 levels deep, so a lead → teammate → helper chain is now a first-class pattern rather than something you fake.
+An **agent team** (the experimental Agent Teams feature, behind `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) coordinates multiple long-lived sessions with a team lead. Teammates can message each other directly through a mailbox system, not just report back to the lead. Use it for genuinely parallel work across separate workstreams (refactor the API layer while migrating the database while updating tests) where the workers need to coordinate. **Two changes to know (2.1.178):** the `TeamCreate` and `TeamDelete` tools were *removed* — with the flag set, every session now has one implicit team, so you spawn teammates directly with the Agent tool's `name` parameter and skip the setup step (the old `team_name` parameter is still accepted but ignored). Separately, nesting has changed twice: 2.1.172 let subagents spawn their *own* subagents up to 5 levels deep, but **2.1.217 turned nested spawning off by default** — a subagent no longer spawns further subagents unless you raise `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`. The same release added a cap on *concurrently running* subagents (default 20, `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`) so a single message can't fan out unbounded background agents. A per-session spawn budget of 200 (`CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`, 2.1.212) was **removed again in 2.1.224**; only the concurrency and depth limits remain. Two more team-level removals: the "Default teammate model" `/config` row is gone (2.1.234) — teammates use the leader's model unless the spawn names one — and the experimental **ultraplan** feature was removed outright (2.1.222). For a Bedrock deployment the concurrency cap is the most useful of these: concurrent Opus subagents are exactly what trips Bedrock throttling, so setting `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` to a small number (the starter kit uses 4) gives you a hard, runtime-enforced bound instead of a prompt-level request to "not run too many at once."
 
 For 90% of work, subagents are enough. Don't reach for agent teams until you've actually hit "this work needs four agents talking to each other" — that's rarer than it sounds.
 
@@ -1147,7 +1214,13 @@ Three capabilities landed in the May 2026 releases that change the ceiling on au
 
 **Dynamic workflows (`/workflows`, 2.1.154)** are the headline. You ask Claude in plain language to create a workflow, and it plans and orchestrates work across *tens to hundreds* of background agents — far beyond what you'd hand-wire with subagents or an agent team. Run `/workflows` to see your runs and their live agent counts. This is the right tool when a task fans out massively and uniformly: "migrate every call site of this deprecated API across the monorepo," "triage all 400 open Dependabot alerts." It supersedes hand-rolled fan-out for large, parallelizable jobs; you still use named subagents for the small, role-differentiated cast in your main pipeline. **Note the keyword change:** the explicit trigger keyword was renamed from `workflow` to **`ultracode`** in 2.1.160 (highlighted violet in the prompt) — the bare word "workflow" no longer triggers a run, though asking for one in your own words still works. A "Dynamic workflow size" setting in `/config` (2.1.202) advises how large Claude makes these runs.
 
-As of 2.1.198, **subagents run in the background by default** — Claude keeps working on the main thread while a delegated agent runs, and you're notified (via the `Notification` hook, matchers `agent_needs_input` / `agent_completed`) when it needs input or finishes. Background agents launched from `claude agents` that finish code work in a worktree now commit, push, and open a draft PR on their own instead of stopping to ask.
+As of 2.1.198, **subagents run in the background by default** — Claude keeps working on the main thread while a delegated agent runs, and you're notified (via the `Notification` hook, matchers `agent_needs_input` / `agent_completed`) when it needs input or finishes. The draft-PR behavior introduced alongside it was narrowed in 2.1.221: background sessions now commit and push to preserve work, open a draft PR **only when the task calls for one**, follow your CLAUDE.md git instructions, and always end by reporting where the work lives. That is a welcome change for a multi-account, PR-averse workflow — a CLAUDE.md line such as "never open PRs; push to the working branch only" is now honored by background sessions.
+
+Several related defaults moved in the 2.1.205–2.1.280 window. Skills with `context: fork` now run **in the background by default** (2.1.218); add `background: false` to a skill whose result the main thread must wait for. `/code-review` also runs as a background subagent (2.1.218). `/fork` gives the forked session its own worktree instead of sharing the original checkout (2.1.221). Subagent results now reach the main agent under a header marking them as subagent output (2.1.277), so text inside a result cannot pose as the session's own instructions — a real prompt-injection hardening for pipelines that pass tool output upward. Under auto mode, a subagent hands its result back through a dedicated call that the safety classifier reviews (2.1.271). Background commands started by subagents lost their one-hour limit (2.1.260) and now run until they exit or are stopped.
+
+Model selection for subagents changed semantics in 2.1.251: `CLAUDE_CODE_SUBAGENT_MODEL` now sets the **default** subagent model rather than overriding everything, so an agent file's `model:` and an explicit per-spawn model win over it. If you want the old "force every subagent onto one model" behavior — useful for cost control — set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` (2.1.257). On Bedrock, a subagent with `model: opus` whose session model id has no recognizable family could silently fall back to the session model before 2.1.274; setting `ANTHROPIC_DEFAULT_OPUS_MODEL` to your exact inference-profile id avoids the ambiguity on any version. Two agent-frontmatter additions: `omitClaudeMd: true` (2.1.271) runs a custom or plugin subagent without user, project and local CLAUDE.md (managed policy files still load), and `experimental.cacheTtl: "5m" | "1h"` (2.1.248) sets a per-agent prompt-cache TTL.
+
+Dynamic workflows got size governance: the default size guideline became "medium" (2.1.219), the medium guideline was lowered from 15 to 10 agents and Pro plans default to "small" (2.1.271), and you can pin it in any settings file with `workflowSizeGuideline`. `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` (1–256, 2.1.269) raises the per-run concurrency limit, and runs now pause at a usage limit and resume when it resets (2.1.271) instead of dropping agents.
 
 **The agent view (`claude agents`, Research Preview, 2.1.139)** is a single dashboard of every Claude Code session — running, blocked on you, or done — across your machine. For someone running several background pipelines at once this replaces the "which terminal was that in" problem. It grew real flags quickly: `--add-dir`, `--settings`, `--mcp-config`, `--plugin-dir`, `--permission-mode`, `--model`, `--effort`, and `--dangerously-skip-permissions` (2.1.142–2.1.143) all set defaults for sessions dispatched from the view, `--cwd <path>` scopes the list (2.1.141), and `claude agents --json` (2.1.145) emits the session list for status bars and scripting. As of 2.1.157 the `agent` field in `settings.json` is honored for dispatched sessions, with `--agent <name>` to override. You can also fire a one-off background shell with `! <command>` inside the view, or `claude --bg --exec '<command>'` (2.1.154).
 
@@ -1164,7 +1237,7 @@ model: <sonnet | opus | haiku | inherit | full-model-id>
 effort: <low | medium | high | max>
 tools: <space-separated list, with Bash(pattern) for specifics>
 disallowedTools: <space-separated list>
-permissionMode: <default | acceptEdits | plan | bypassPermissions>
+permissionMode: <default ("Manual") | acceptEdits | plan | auto | bypassPermissions>
 maxTurns: <integer cap>
 skills: <skills to preload into context>
 mcpServers: <MCP servers to expose to this agent only>
@@ -1174,11 +1247,14 @@ background: <true | false>
 isolation: <worktree | none>
 initialPrompt: <auto-submitted first turn>
 color: <UI tag color>
+omitClaudeMd: <true | false>               # 2.1.271: skip user/project/local CLAUDE.md
+experimental:
+  cacheTtl: <"5m" | "1h">                   # 2.1.248: per-agent prompt-cache TTL
 ```
 
 Only `name` and `description` are required. The rest defaults to inheriting from the main session (which is the wrong default for autonomous agents — narrow each field explicitly).
 
-A note: subagents **don't automatically inherit project CLAUDE.md**. They get their own system prompt (the agent file body) plus basic environment details. If your agent needs to know the project's build commands or conventions, write them into the agent body — don't assume CLAUDE.md is in scope.
+A note on CLAUDE.md and subagents, revised for 2.1.271+. Earlier editions of this book said subagents don't inherit project CLAUDE.md. The 2.1.271 release added an `omitClaudeMd` frontmatter field whose stated purpose is to let custom and plugin subagents run *without* user, project and local CLAUDE.md files — which means that in current builds those files load into subagents by default. Treat the old advice as version-dependent: verify what your build does by running `/context` inside a subagent (or asking the agent to list the instructions it received), and keep the defensive habit either way — the build and test commands an agent cannot work without belong in the agent body, because that is the one place you control completely. Use `omitClaudeMd: true` for lean agents (a report writer, a formatter) where the project CLAUDE.md is pure context cost.
 
 ---
 
@@ -1197,6 +1273,10 @@ One behavior change to know if you isolate agents (2.1.133): the `worktree.baseR
 Naming note (2.1.200): the mode formerly surfaced as "default" is now labeled **"Manual"** across the CLI, `--help`, VS Code, and JetBrains, and a grey ⏸ badge appears in the footer when you're in it (2.1.203). Both `--permission-mode manual` / `"defaultMode": "manual"` and the old `default` spelling are accepted, so existing agent frontmatter and settings keep working — but when you read "Manual" in the UI, that's this mode.
 
 There is now a fifth posture worth knowing: **auto mode.** Rather than the blanket allow/deny of `bypassPermissions`, auto mode runs each proposed action through a safety classifier that allows routine work and stops on genuinely risky operations (notably data exfiltration — the classifier's detection of bulk repository-content transfers was hardened in 2.1.154). It appears in the Shift+Tab permission cycle (2.1.143), no longer requires an opt-in flag or consent prompt as of 2.1.152, and — most relevant for a Bedrock/Vertex/Foundry shop — became available on those providers for Opus 4.7 and 4.8 in 2.1.158 by setting `CLAUDE_CODE_ENABLE_AUTO_MODE=1`. You can tune it with `autoMode.allow`, `autoMode.soft_deny`, `autoMode.hard_deny` (unconditional blocks, 2.1.136), and `autoMode.environment` rules; include `"$defaults"` in those lists to extend the built-in ruleset instead of replacing it (2.1.118). Think of auto mode as the middle ground between `acceptEdits` and `bypassPermissions`: more autonomous than the former, more defensible than the latter, because a classifier — not a blanket rule — is making the call.
+
+Where that classifier runs changed twice in September 2026, and on Bedrock it matters for cost. In 2.1.273 auto mode on Bedrock, Vertex and Foundry was set to a **local** classifier by default; in **2.1.278** the default flipped to the **server-side** classifier for Claude API and Enterprise users and on Bedrock, Vertex, Foundry and gateways, which does not bill classifier overhead and warns if it falls back to a billed path. `CLAUDE_CODE_AUTO_MODE_SERVER=0` opts out on the cloud providers, and a new `Auto mode server` row in `/status` shows which one your session is using. For external sessions the classifier model itself defaults to Sonnet 5, validated on the first request and pinned for the session (2.1.210).
+
+The rule set kept tightening in useful ways: a **Containment Escape** rule stops auto-approving cloud-metadata credential fetches, egress evasion and cross-tenant reach (2.1.257); tampering with session transcript files is blocked (2.1.205); a link that packs content into a public diagram renderer's URL is treated as an upload (2.1.261); and with sandboxing on, Bash, PowerShell and Monitor commands can declare per-command `allowed_domains` that are reviewed with the command and opened for it alone (2.1.271). Denials now name the rule that blocked the action and ask Claude to try a safer method first (2.1.268), and since 2.1.280 an action the classifier declined to review is denied once rather than retried in a loop, with backoff and a hard stop after ten consecutive unanswered checks. You can view and edit classifier rules in an Auto mode tab under `/permissions` (2.1.246), and `claude auto-mode reset` restores the defaults (2.1.212). Remember the scope rule from Chapter 15: `autoMode` rules in `.claude/settings.local.json` are ignored as of 2.1.207.
 
 **`maxTurns` caps cost.** An agent with `maxTurns: 30` literally cannot run forever. It will hit the cap, summarize, and return. This is the simplest insurance against pathological loops and prompt-injection-induced wandering.
 
@@ -1712,6 +1792,10 @@ Each server shows: **connected / disconnected / failed**, the tool count, and ap
 
 `/doctor` validates every loaded configuration file and prints schema errors. Run this whenever something silently dropped — if a skill's frontmatter has a typo, `/doctor` will tell you which file and which key. `/status` shows which settings sources are active (managed, user, project, local) so you can spot "oh, settings.local.json is overriding my settings.json" before it burns an hour. `/permissions` shows the merged allow/deny rules in effect — useful when "Claude won't run my command" turns out to be a deny rule you forgot you added.
 
+### Inspection additions in 2.1.205–2.1.280
+
+`/status` now answers several questions that used to require `--debug`: an **Organization policy** line says why the org policy couldn't load (2.1.261, also in `claude doctor`); a **Skipped sources** line lists managed-settings sources present but shadowed by a higher-precedence one (2.1.243); the **session kind** shows whether you're `interactive` or a background job that is `attached` or `unattended` (2.1.221); and **Auto mode server** shows where the classifier runs (2.1.278). `/cost` gained a per-session prompt-cache line — hit ratio, misses, tokens re-cached, warm/cold — with a likely cause for each miss, such as changed tool definitions or an idle gap past the TTL (2.1.251, 2.1.260, 2.1.280); the same data is in the status line's `prompt_cache` field. That is the first place to look when a long pipeline session suddenly gets expensive. `/skill-doctor` (2.1.261) lists unused skills and their context cost. `/usage` breaks out `/loop` runs (2.1.243). Model changes: the `/model` picker can be curated per organization or user with `modelPicker` (2.1.243), `/effort` now saves a level **per model** (2.1.251) with `s` to change it for the current session only (2.1.257), and `maxEffortLevel` caps effort on every provider including Bedrock (2.1.267). Finally, `--debug-file <path>` writes the debug log where you choose, and `--system-prompt-snapshot off` (2.1.267) re-renders the system prompt every request when you are iterating on prompt text.
+
 ---
 
 ## Chapter 32. Verbose Mode vs. Debug Mode
@@ -1865,10 +1949,10 @@ For "invoked but did the wrong thing," the agent's full session is captured in t
 
 - **Bad tool allowlist** — the agent tried to do something its tools didn't permit. Add to `tools:` or remove from `disallowedTools:`.
 - **Hit maxTurns** — the agent ran out of turns before finishing. Bump `maxTurns:` or narrow the task scope.
-- **Wrong context** — the agent didn't have enough information. Subagents **don't always inherit project CLAUDE.md**; put critical context directly in the agent's body (which becomes its system prompt).
+- **Wrong context** — the agent didn't have enough information. Whether a subagent sees project CLAUDE.md is version-dependent (current builds load it unless the agent sets `omitClaudeMd: true`, 2.1.271); either way, put critical context directly in the agent's body (which becomes its system prompt).
 - **Hook in the agent definition fired wrong** — agents can define their own hooks in frontmatter. A misconfigured SubagentStop test gate inside the agent can cause it to spin. Same `stop_hook_active` guard applies inside agent-level hooks.
 
-The "doesn't inherit project memory" gotcha is the most common subagent debugging surprise. If your agent needs to know the build commands, write them into the agent body — don't rely on CLAUDE.md being in scope.
+The "agent didn't know the project basics" gotcha is the most common subagent debugging surprise. On older builds subagents did not get project CLAUDE.md at all; on current builds they do unless `omitClaudeMd` is set — check which applies with `/context` inside the agent. Either way, if your agent needs to know the build commands, write them into the agent body.
 
 ### Plugins
 
@@ -1890,7 +1974,7 @@ CLAUDE_CONFIG_DIR=/tmp/claude-clean claude
 
 This launches with zero personal config. No user CLAUDE.md, no user settings, no user skills/agents/hooks, no memory. Managed (org-level) settings still apply because they live at a system path. If the issue persists here, it's environmental (network, model availability, an Anthropic-side issue) or you've found a real bug.
 
-**The one-flag shortcut (2.1.169+): `--safe-mode`.** As of 2.1.169 you can start Claude Code with all customizations — CLAUDE.md, plugins, skills, hooks, MCP servers — disabled in a single flag: `claude --safe-mode` (or set `CLAUDE_CODE_SAFE_MODE`). This is the fastest possible "is it my config or the tool?" check: if the problem vanishes under `--safe-mode`, it's something in your configuration and you move to the bisection below; if it persists, it's environmental or a real bug. Reach for `--safe-mode` first, and only set up the `CLAUDE_CONFIG_DIR` clean room when you specifically need managed settings out of the picture too, or when you want to bisect by copying config subtrees back in.
+**The one-flag shortcut (2.1.169+): `--safe-mode`.** As of 2.1.169 you can start Claude Code with all customizations — CLAUDE.md, plugins, skills, hooks, MCP servers — disabled in a single flag: `claude --safe-mode` (or set `CLAUDE_CODE_SAFE_MODE`). This is the fastest possible "is it my config or the tool?" check: if the problem vanishes under `--safe-mode`, it's something in your configuration and you move to the bisection below; if it persists, it's environmental or a real bug. Reach for `--safe-mode` first, and only set up the `CLAUDE_CONFIG_DIR` clean room when you specifically need managed settings out of the picture too, or when you want to bisect by copying config subtrees back in. One scope rule to remember (2.1.251): `CLAUDE_CONFIG_DIR` must come from your shell, user or managed settings — a project's `.claude/settings.json` `env` block can no longer set it, so the clean room always starts from the command line as shown below.
 
 If the issue *disappears* in the clean room, the cause is in your configuration. Now bisect: copy your real `~/.claude/` to the clean dir, run again, see if it reappears. If yes, the cause is in user-scope config. Half it again: copy only `~/.claude/CLAUDE.md`, test; then add `~/.claude/skills/`; then `~/.claude/agents/`. Within four iterations you'll know which subtree contains the problem, and from there a quick read of the files identifies the culprit.
 
@@ -1923,7 +2007,7 @@ Suppose the debug log shows:
 [SubagentStop hook] (none fired)
 ```
 
-That's the clue. The matcher didn't match even though `implementer` was the agent. The reason: SubagentStop's matcher is checked against the *tool name pattern*, not the agent name, in older Claude Code versions. Newer versions added agent-name matching. Check your version: `claude --version`. If you're on a version that doesn't support agent matching in SubagentStop, the workaround is to omit the matcher and gate inside the hook:
+That's the clue. The matcher didn't match even though `implementer` was the agent. The reason: SubagentStop's matcher is checked against the *tool name pattern*, not the agent name, in older Claude Code versions. Newer versions added agent-name matching. Check your version: `claude --version`. If you're on a version that doesn't support agent matching in SubagentStop, the workaround is to omit the matcher and gate inside the hook. (A related bug — a specific SubagentStop `matcher` firing for every subagent whose agent type was *empty* — was fixed in 2.1.275, so on current builds a matcher is reliable; gating inside the script remains the version-proof choice.)
 
 ```bash
 #!/usr/bin/env bash
@@ -2063,7 +2147,7 @@ The ones that actually steal hours from people:
 
 **"MCP server worked yesterday, doesn't today."** OAuth token expired. `/mcp` shows the server connected but tool calls 401. Disconnect, reconnect.
 
-**"Subagent gets confused about basics like build commands."** Subagents don't inherit project CLAUDE.md. Put critical context into the agent's body, not just in `CLAUDE.md`.
+**"Subagent gets confused about basics like build commands."** Older builds didn't pass project CLAUDE.md to subagents; current builds do unless the agent has `omitClaudeMd: true` (2.1.271). Check the agent file for that field, confirm with `/context` inside the agent, and put critical context into the agent's body regardless.
 
 **"Plan mode bypassed even though I'm in plan mode."** Some agents and skills have `permissionMode` in their frontmatter that overrides the session default. Check `/agents` and `/skills` for the active permission mode of whatever's running.
 
@@ -2144,6 +2228,13 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `/workflows` | View dynamic-workflow runs orchestrating many background agents (2.1.154; explicit trigger keyword is `ultracode` as of 2.1.160) |
 | `/reload-skills` | Re-scan skill directories without restarting the session (2.1.152) |
 | `/code-review [effort]` | Correctness-bug review at a chosen effort; `--fix` applies findings, `--comment` posts inline PR comments (renamed from `/simplify`, 2.1.147–2.1.152) |
+| `/review` | Alias of `/code-review` since 2.1.223 (the 2.1.202 single-pass behavior is superseded); `/code-review ultra` runs the deep cloud review |
+| `/skill-doctor` | Show unused skills and their context cost, for pruning (2.1.261) |
+| `/output-style [name]` | List and switch output styles, including headless/Remote Control (2.1.269); built-in "Concise" style (2.1.237) |
+| `/cd <dir>` | Move the session's working directory; loads that directory's settings, hooks, skills, agents and `.mcp.json` immediately (2.1.246) |
+| `/reload-plugins` | Now rarely needed interactively — `/plugin` changes apply when the menu closes (2.1.268); available in headless/SDK (2.1.260) |
+| `/loop` | Self-paced and autonomous modes available on all providers including Bedrock (2.1.248) |
+| `/deep-research` | Starts only when invoked manually; Claude no longer launches it on its own (2.1.218) |
 | `/simplify` | Cleanup-only review (reuse, simplification, efficiency) that applies fixes (2.1.154) |
 | `/ultrareview [PR#]` | Cloud-based parallel multi-agent review of the branch or a PR (2.1.111) |
 | `/usage` | Usage and cost view; per-category breakdown by skills/subagents/plugins/MCP (merges `/cost` + `/stats`, 2.1.118; breakdown 2.1.149) |
@@ -2177,12 +2268,22 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `--bg` / `--bg --exec '<cmd>'` | Start a background session (or run a shell command as one, 2.1.154) |
 | `--version` | Print Claude Code version |
 | `--safe-mode` | Start with all customizations (CLAUDE.md, plugins, skills, hooks, MCP) disabled (2.1.169) |
+| `--permission-prompts none` | Unattended hosts: anything that would prompt is denied; the active mode keeps deciding (2.1.259) |
+| `--restricted` | Remove command-running tools and `WebFetch`, keep file tools in the working dir (2.1.248) |
+| `--debug-file <path>` | Write the debug log to a chosen path |
+| `--system-prompt-snapshot off` | Re-render the system prompt every request (2.1.267) |
+| `--append-subagent-system-prompt-file <path>` | Read the subagent system prompt from a file (2.1.261) |
+| `--forward-subagent-text` | Include subagent text/thinking in stream-json output (2.1.211) |
 | `claude agents` | Open the agent-view dashboard of all sessions (2.1.139) |
 | `claude agents --json` | Emit the live session list as JSON for scripting (2.1.145) |
 | `claude plugin init <name>` | Scaffold a new plugin in `.claude/skills` (2.1.157) |
 | `claude plugin details <name>` | Show a plugin's component inventory + projected token cost (2.1.139) |
 | `claude ultrareview [target]` | Run `/ultrareview` non-interactively from CI (`--json`; 2.1.120) |
 | `claude project purge [path]` | Delete all Claude Code state for a project (2.1.126) |
+| `claude attach/logs/stop/respawn/rm <id>` | Manage background sessions (listed in `--help` since 2.1.251) |
+| `claude auto-mode reset` | Restore default auto-mode rules (`--yes` to skip confirm; 2.1.212) |
+| `claude plugin eval` | Run a plugin's eval suite; scored JSON + HTML report (2.1.269) |
+| `claude plugin install/update --json --accept-command <sha256>` | Scriptable, pinned plugin installs (2.1.268, 2.1.271) |
 | `claude mcp add` | Register an MCP server |
 | `claude mcp list` | Show configured MCP servers |
 | `claude mcp doctor` | Diagnose MCP connection problems |
@@ -2201,6 +2302,22 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | Enable agent teams (implicit team since 2.1.178; `TeamCreate`/`TeamDelete` removed) |
 | `CLAUDE_CODE_SAFE_MODE` (or `--safe-mode`) | Start with all customizations disabled for troubleshooting (2.1.169) |
 | `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` | Hide bundled skills/workflows/built-in commands from the model (2.1.169) |
+| `ANTHROPIC_DEFAULT_MODEL` | Model new sessions start on; a `/model` pick still overrides and persists (2.1.236) |
+| `ANTHROPIC_BEDROCK_REGION_PREFIX` | Prefer a specific Bedrock cross-region inference profile over the `AWS_REGION`-derived one (2.1.224) |
+| `CLAUDE_CODE_AUTO_MODE_SERVER` | `0` opts out of the server-side auto-mode classifier on Bedrock/Vertex/Foundry (default server since 2.1.278) |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` | Cap on concurrently running subagents (default 20; 2.1.217) |
+| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` | Allow nested subagent spawning (off by default since 2.1.217) |
+| `CLAUDE_CODE_SUBAGENT_MODEL` / `_FORCE` | Default subagent model (2.1.251 semantics) / force it on every subagent (2.1.257) |
+| `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` | Per-run workflow concurrency, 1–256 (2.1.269) |
+| `CLAUDE_CODE_MCP_STARTUP_WAIT_MS` | Bound first-turn wait for connecting MCP servers in headless runs (2.1.274) |
+| `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` | Change the 2,048-char cap on MCP tool descriptions (2.1.280) |
+| `MCP_SDK_GENERATION=v1` / `MCP_PROTOCOL_NEGOTIATION=legacy` | Opt out of the v2 MCP client / 2026-07-28 negotiation on Bedrock (2.1.274) |
+| `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` | Restore TodoWrite/Task* tracking tools on newer models (2.1.233/2.1.268) |
+| `CLAUDE_CODE_RESTRICTED=1` | Same as `--restricted` (2.1.248) |
+| `CLAUDE_CODE_TOOL_MEMORY_LIMIT` | Opt-in memory cgroup for Bash tool commands on Linux (2.1.233) |
+| `CLAUDE_CODE_WEBFETCH_DEADLINE_MS` | WebFetch hard deadline (default 300s; 2.1.268) |
+| `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | WebSearch per-session cap (default 200; 2.1.212) |
+| `TASK_MAX_OUTPUT_LENGTH` | **No effect** since 2.1.277 (TaskOutput tool removed) |
 | `CLAUDE_CODE_NEW_INIT=1` | Multi-phase interactive `/init` |
 | `ENABLE_TOOL_SEARCH` | Toggle Tool Search (default on; off by default on Vertex) |
 | `ANTHROPIC_MODEL` | Default model for first turn |
@@ -2220,7 +2337,7 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 
 | Event | When it fires |
 |---|---|
-| `SessionStart` (matchers: `startup`, `resume`, `clear`, `compact`) | Session begins or compacts |
+| `SessionStart` (matchers: `startup`, `resume`, `clear`, `compact`, `fork`) | Session begins, forks (source `fork` since 2.1.214), or compacts |
 | `SessionEnd` | Session ends cleanly |
 | `UserPromptSubmit` | You press enter |
 | `PreToolUse` | Before a tool call |
@@ -2233,6 +2350,8 @@ The bottom-line decision rule one more time: **if it must be true in every sessi
 | `StopFailure` | Claude's turn errored |
 | `Notification` (matchers: `permission_prompt`, `idle_prompt`, `auth_success`, etc.) | Notification triggered |
 | `MessageDisplay` | As each assistant message is shown; can transform or hide text (2.1.152) |
+| `PreModelSwitch` / `PostModelSwitch` | Before/after a model switch; can block, confirm, or annotate (2.1.251) |
+| `DirectoryAdded` | After `/add-dir` or SDK `register_repo_root` adds a working directory (2.1.219) |
 | `InstructionsLoaded` | After all CLAUDE.md and rules merge into the system prompt |
 
 ---
@@ -2255,6 +2374,7 @@ agent: Explore                          # which agent profile when context: fork
 argument-hint: <hint for arguments>     # shown in / menu
 model: <override>                       # use a specific model just for this skill
 effort: high                            # pin effort for this skill; body can read ${CLAUDE_EFFORT}
+background: false                       # context: fork skills run in background by default (2.1.218)
 hooks: { ... }                          # skill-scoped hooks (rare)
 ---
 ```
@@ -2291,6 +2411,9 @@ hooks:                                  # agent-scoped hooks (project agents onl
           command: bash test_gate.sh
 initialPrompt: <auto-submitted first turn>
 color: <UI tag color>
+omitClaudeMd: <true | false>               # 2.1.271: skip user/project/local CLAUDE.md
+experimental:
+  cacheTtl: <"5m" | "1h">                   # 2.1.248: per-agent prompt-cache TTL
 ---
 ```
 
@@ -2325,7 +2448,7 @@ The book references a companion document called `claude-code-pipeline-starter.md
 
 Drop it into a project, fill in the credentials in `.env`, and you have the pipeline described in Part VI running. The starter kit is the implementation; this book is the explanation. Read this book to know *why* each piece is the way it is; use the starter kit to skip the typing.
 
-The starter kit ships separately from this handbook. If you've received only one of the two files, ask for the other — they're designed to be used together.
+The current starter kit is **v5, aligned to Claude Code 2.1.280**; its `startup_check.py` doubles as an upgrade audit for the deprecations in Appendix H.1. The starter kit ships separately from this handbook. If you've received only one of the two files, ask for the other — they're designed to be used together.
 
 ---
 
@@ -2422,7 +2545,7 @@ These are the changes that can break a pipeline built against an older version. 
 | Windsurf (IDE label) | **Renamed** to Devin Desktop | 2.1.162 | Cosmetic, in `/ide`, `/terminal-setup`, `/scroll-speed`. |
 | `CLAUDE_CODE_MAX_RETRIES` unbounded value | **Capped at 15** | 2.1.186 | For unattended sessions use `CLAUDE_CODE_RETRY_WATCHDOG` (raises retries to 300 as of 2.1.199) instead. |
 | Startup "setup issues" / "command missing or broken" lines | **Removed** from startup | 2.1.183, 2.1.204 | The information moved to `/doctor` and `/status`. |
-| `/review <pr>` multi-agent behavior | **Reverted** to fast single-pass | 2.1.202 | Use `/code-review <level> <pr#>` for the multi-agent review at a chosen effort. |
+| `/review <pr>` multi-agent behavior | **Reverted** to fast single-pass | 2.1.202 | Use `/code-review <level> <pr#>` for the multi-agent review at a chosen effort. *(Superseded in 2.1.223: `/review` is now an alias of `/code-review`.)* |
 | Left-arrow closing background/diff/workflow detail views | **Changed** to Esc | 2.1.204 | Press Esc to close those views; left-arrow no longer does. |
 | JetBrains-plugin install suggestion at startup | **Removed** | 2.1.160 | Cosmetic. |
 
@@ -2432,7 +2555,7 @@ Two behavior *defaults* also flipped in ways worth flagging here, because they c
 
 **Claude Fable 5** (2.1.170, June 9) is a Mythos-class model made available for general use in Claude Code — update to 2.1.170 or later to select it. Two Fable-specific mechanics matter for anyone who pins models: Fable 5 ships with a **1M-token context window by default**, so a `[1m]` suffix on the model name is redundant and is now **stripped automatically** (2.1.173) — relevant if your `ANTHROPIC_DEFAULT_OPUS_MODEL`-style pinning appends `[1m]`, because the same normalization logic applies and a doubled `[1m][1m]` suffix was a real bug that's since been fixed. Auto mode on Fable 5 falls back to the best available Opus classifier for organizations that don't have Opus 4.8 enabled (2.1.176), so auto mode keeps working even where Fable is the session model.
 
-**Claude Sonnet 5** (2.1.197, June 30) is now the **default model in Claude Code**, with a native 1M-token context window. If your workflow assumed Opus as the default, it no longer is — pin Opus explicitly with `/model`, an `ANTHROPIC_MODEL` env var, or agent frontmatter. (On third-party providers like Bedrock, model availability and the region-derived inference-profile prefix still govern what you actually get; `/status` shows where the region came from as of 2.1.172.)
+**Claude Sonnet 5** (2.1.197, June 30) became the **default model in Claude Code**, with a native 1M-token context window. *(Superseded: Opus 5 (2.1.219) and Opus 5.5 (2.1.280) became the default Opus models, Pro and Team Standard moved back to an Opus default in 2.1.280, and Bedrock/Vertex default to Opus 4.8 since 2.1.207 — see Appendix H.)* If your workflow assumed Opus as the default, it no longer is — pin Opus explicitly with `/model`, an `ANTHROPIC_MODEL` env var, or agent frontmatter. (On third-party providers like Bedrock, model availability and the region-derived inference-profile prefix still govern what you actually get; `/status` shows where the region came from as of 2.1.172.)
 
 Alongside the new models, org-level model governance matured: **`availableModels`** with **`enforceAvailableModels`** (2.1.175) lets admins constrain even the Default model and prevents user/project settings from widening a managed allowlist; **organization default models** (2.1.196) show as "Org default" / "Role default" in `/model`; and a **`fallbackModel`** setting (2.1.166) configures up to three fallback models tried in order on overload — the interactive-session complement to `--fallback-model`.
 
@@ -2444,7 +2567,7 @@ Beyond the renames in G.1, a few functional changes update guidance elsewhere in
 
 **Debugging (Part VIII).** The big addition is `--safe-mode` / `CLAUDE_CODE_SAFE_MODE` (2.1.169) — a one-flag clean room that disables CLAUDE.md, plugins, skills, hooks, and MCP servers, now folded into Chapter 34. Also: `/config key=value` sets any setting from the prompt (2.1.181); `/config --help` lists the shorthand keys (2.1.183); `requiredMinimumVersion` / `requiredMaximumVersion` managed settings refuse to start outside an approved range (2.1.163); and `disableBundledSkills` / `CLAUDE_CODE_DISABLE_BUNDLED_SKILLS` hides built-ins from the model (2.1.169).
 
-**Agents.** Subagents can spawn their own subagents up to 5 levels deep (2.1.172); they run in the background by default and auto-open draft PRs when finishing worktree code work (2.1.198); the built-in Explore agent inherits the session model capped at Opus rather than running on Haiku (2.1.198); and subagents inherit the session's extended-thinking configuration (2.1.198). New permission granularity: `Tool(param:value)` rules with wildcards, e.g. `Agent(model:opus)` to block Opus subagents (2.1.178), and `Agent(type)` deny / `Agent(x,y)` allowed-type restrictions on named spawns (2.1.186). Cross-session messaging was hardened so relayed `SendMessage` traffic never carries user authority (2.1.166, 2.1.183).
+**Agents.** Subagents can spawn their own subagents up to 5 levels deep (2.1.172 — *superseded: nested spawning is off by default since 2.1.217; see Appendix H*); they run in the background by default and auto-open draft PRs when finishing worktree code work (2.1.198); the built-in Explore agent inherits the session model capped at Opus rather than running on Haiku (2.1.198); and subagents inherit the session's extended-thinking configuration (2.1.198). New permission granularity: `Tool(param:value)` rules with wildcards, e.g. `Agent(model:opus)` to block Opus subagents (2.1.178), and `Agent(type)` deny / `Agent(x,y)` allowed-type restrictions on named spawns (2.1.186). Cross-session messaging was hardened so relayed `SendMessage` traffic never carries user authority (2.1.166, 2.1.183).
 
 **Auto mode and security.** Destructive commands are now blocked by the classifier unless you asked for them — `git reset --hard`, `git checkout -- .`, `git clean -fd`, `git stash drop`, `git commit --amend` on commits the agent didn't make, and `terraform`/`pulumi`/`cdk destroy` (2.1.183). `autoMode.classifyAllShell` routes *all* Bash/PowerShell through the classifier rather than only code-execution patterns (2.1.193), denial reasons now appear in the transcript, toast, and `/permissions` (2.1.193), and subagent spawns are classifier-evaluated before launch (2.1.178). A `sandbox.credentials` setting blocks sandboxed commands from reading credential files and secret env vars (2.1.187).
 
@@ -2453,6 +2576,104 @@ Beyond the renames in G.1, a few functional changes update guidance elsewhere in
 **MCP.** `claude mcp login <name>` / `claude mcp logout <name>` authenticate servers from the CLI without the interactive `/mcp` menu, with `--no-browser` for SSH (2.1.186); remote MCP tool calls that hang now abort after 5 minutes (override `CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`) (2.1.187); the session's additional working directories are exposed via MCP `roots/list` with change notifications (2.1.203); `headersHelper` re-runs and reconnects on a 401/403 (2.1.193); and a config with `url` but no `type` now gets a clear "add `\"type\": \"http\"`" error instead of a misleading one (2.1.202).
 
 **Other.** Claude in Chrome is generally available (2.1.198); `/cd` moves a session's working directory without breaking the prompt cache (2.1.169); `/rewind` can resume from before a `/clear` (2.1.191); `/plugin list` gained `--enabled`/`--disabled` filters (2.1.163); and `CLAUDE_CLIENT_PRESENCE_FILE` suppresses mobile push while you're at the machine (2.1.181).
+
+---
+
+## Appendix H. Release Delta — 2.1.205 to 2.1.280 (Deprecations, Removals, Changed Defaults, and New Capabilities)
+
+This appendix covers every Claude Code release from 2.1.205 (July 2026) through **2.1.280**, the latest release as of September 22, 2026 (the public docs changelog page trailed the GitHub CHANGELOG by one release at the time of writing). It is organized the same way as Appendix G: first what was **removed or deprecated**, then **defaults that changed underneath existing configurations**, then the model landscape, then each surface of the stack — plugins, MCP, skills, hooks, agents, settings and permissions — and finally operator notes for AWS Bedrock. The chapter-level detail lives in the chapters themselves (the plugin, MCP, skill, hook and settings chapters each gained a "changes in 2.1.205–2.1.280" section); this appendix is the checklist you run against a pipeline after upgrading.
+
+### H.1 Removed and deprecated
+
+The table lists everything in the window that stopped existing, stopped having an effect, or now refuses to load. The rightmost column is what to change.
+
+| Item | Kind | Status | Version | What to do |
+|---|---|---|---|---|
+| `TaskOutput` tool | Tool | **Removed** | 2.1.277 | Claude reads a background task's output file with Read. Drop `TaskOutput` from any agent `tools:` lists and permission rules. |
+| `taskOutputMaxChars` setting, `TASK_MAX_OUTPUT_LENGTH` | Setting / env | **No effect** | 2.1.277 | Remove them. (`taskOutputMaxChars` was only added in 2.1.261.) `bashOutputMaxChars` still works. |
+| Task tool `mode` parameter | Tool parameter | **Deprecated, ignored** | 2.1.212 | Subagents inherit the parent's permission mode; set `permissionMode` in the agent file instead. |
+| ultraplan | Feature | **Removed** | 2.1.222 | Use plan mode, `/goal`, or a dynamic workflow. |
+| Per-session subagent spawn cap (200) and `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` | Limit / env | **Removed** | 2.1.224 (added 2.1.212) | Nothing; concurrency (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`) and depth limits remain. |
+| "Default teammate model" `/config` row | Setting | **Removed** | 2.1.234 | Teammates use the leader's model unless the spawn names one. |
+| Opus 4.7 in fast mode | Model option | **Removed** | 2.1.219 | `/fast` applies to Opus 5 and Opus 4.8 (and newer). |
+| TodoWrite / TaskCreate/Get/Update/List | Tools | **Not offered** on Opus 4.8, Sonnet 5, Fable 5, Mythos 5 and newer | 2.1.233, narrowed 2.1.268 | Keep plans in `prompt_plan.md` (this book's method never depended on them), or set `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. |
+| Monitor `persistent` option | Tool option | **Replaced** by mandatory deadlines (≤30 min; ≤10 in `-p`) with re-arm notices | 2.1.271 | Long watches must re-arm; an external watchdog is still the robust choice for multi-hour jobs. |
+| One-hour limit on subagent background commands | Limit | **Removed** | 2.1.260 | Background commands from subagents now run until they exit or are stopped — make sure your watchdog, not the runtime, is what bounds them. |
+| `keybindingFlavor` | Setting | **No effect** | 2.1.261 (added 2.1.238) | Remove it; prompt word keys now match Bash by default. |
+| `"type": "sdk"` MCP entries in `.mcp.json`, settings, plugins, agent files | Config | **Skipped with a warning** | 2.1.274 | Only an SDK host application can register in-process servers. |
+| `defaultMode: "bypassPermissions"` in `.claude/settings.json` / `settings.local.json` | Setting scope | **Ignored** | 2.1.257 | Set it in user or managed settings, or pass `--permission-mode`. |
+| `autoMode` rules in `.claude/settings.local.json` | Setting scope | **Ignored** | 2.1.207 | Move them to `~/.claude/settings.json`. |
+| `CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_TMPDIR`, `TMPDIR`/`TMP`/`TEMP` in project `env` | Setting scope | **Ignored** | 2.1.251 | Set in shell, user or managed settings. |
+| `sandbox.ripgrep` in project settings | Setting scope | **Ignored** | 2.1.232 | User, managed or `--settings` only. |
+| `Write(path)`, `NotebookEdit(path)`, `Glob(path)` permission rules | Rule syntax | **Warned at startup** (never matched file checks) | 2.1.210 | Rewrite as `Edit(path)` / `Read(path)`. |
+| Permission rules with text after `)` (e.g. `Bash(ls) x`) | Rule syntax | **Reported as invalid** (was silently ignored) | 2.1.260 | Fix the rule. |
+| npm plugin install scripts | Plugin behavior | **No longer run** (`npm pack --ignore-scripts`) | 2.1.275 | Ship built artifacts inside the package. |
+| Agent names containing `:` | Agent files | **Rejected** (reserved for plugin namespacing) | 2.1.218 | Rename the agent. |
+| Marketplaces imitating a reserved name | Plugins | **Refused**, and unloaded if already added | 2.1.280 | Rename the marketplace. |
+| Agent-type hooks on `PermissionRequest` | Hooks | **Rejected** with an error | 2.1.280 | Use `command` or `http` hooks. |
+| `/review` as a separate command | Command | **Now an alias** of `/code-review` | 2.1.223 | `/code-review <level> [pr#]`; `/code-review ultra` for the deep cloud review. |
+| `/deep-research` auto-launch | Behavior | **Removed** (manual only) | 2.1.218 | Invoke it explicitly. |
+| `y`/`n` single-key confirm in dialogs | Keys | **Removed** (Enter/Esc) | 2.1.280 | Bind `confirm:yes`/`confirm:no` in `keybindings.json` to restore. |
+| Effort levels saved before `/effort` became per-model | Saved state | **Not applied** to newly released models | 2.1.280 | Re-pick effort once per new model (e.g. Opus 5.5). |
+| Launch-default effort pinning on Opus 4.7/4.8 and Fable 5 | Behavior | **Removed** | 2.1.280 | Your `/effort`, `effortLevel` and per-model settings now apply to those models in `-p` and the SDK too. |
+| Background Haiku auto-title request in `claude -p` | Behavior | **Removed** | 2.1.277 | Nothing — one fewer model call in headless runs. |
+| Ctrl+E command explanation on permission prompts | UI | **Removed** | 2.1.257 | — |
+
+One subtle entry deserves emphasis. The effort changes at the bottom of the table mean that a Bedrock pipeline that pinned `effortLevel` in `--settings` but was silently running Opus 4.8 at its launch default will, after 2.1.280, actually run at the level you configured. If you had set a low level long ago and forgotten it, expect a quality change; if you set `max`, expect a cost change. Audit `effortLevel` and per-model `modelSettings` before upgrading.
+
+### H.2 Defaults that changed underneath existing configurations
+
+These are not removals, but each one alters what an existing, unchanged configuration does after an upgrade:
+
+**Subagent nesting is off by default** (2.1.217) — superseding the "5 levels deep" note in Appendix G. Raise `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` to allow it. **At most 20 subagents run concurrently** by default (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, 2.1.217). **`context: fork` skills run in the background** (2.1.218; `background: false` to opt out), and so does `/code-review` (2.1.218), which since 2.1.274 uses lean inline prompts instead of many review subagents on models without tuned settings. **Background sessions open a draft PR only when the task calls for one** (2.1.221). **`/fork` creates its own worktree** (2.1.221). **SessionStart reports `fork`** for forked sessions (2.1.214). **`dir/**` in a hook `if:` matches only `<cwd>/dir`** (2.1.214). **`CLAUDE_CODE_SUBAGENT_MODEL` is a default, not an override** (2.1.251). **`allowedMcpServers` governs only user-added servers** (2.1.259). **Bedrock, Vertex and Foundry use the v2 MCP client** with MCP 2026-07-28 negotiation (2.1.274). **Auto mode's classifier runs server-side** on Bedrock, Vertex, Foundry and gateways (2.1.278, after a brief local default in 2.1.273). **The Write tool may overwrite a file it hasn't read** this session on newer models (2.1.228), matching Edit's rules — so a PreToolUse guard is now the only thing standing between Claude and a protected file it never opened. **"Always allow" approvals save at the repository root** (2.1.211). **Subagent results arrive under a subagent-output header** (2.1.277). And project **CLAUDE.md now reaches subagents** unless they set `omitClaudeMd` (implied by 2.1.271; see Chapter 18).
+
+### H.3 The model landscape
+
+Three model releases landed in this window. **Claude Opus 5** (`claude-opus-5`, 2.1.219) became the default Opus model with a 1M context window and fast mode; the bundled claude-api skill gained a migration path from Opus 4.8. **Claude Fable 5.1** (`claude-fable-5-1`, 2.1.257) replaced Fable 5 as the default Fable model — 1M context, $10/$50 per Mtok with $0.25 cache reads — and changing effort on it mid-session no longer invalidates the prompt cache (2.1.260); note that `fable` and `best` in Claude apps gateway sessions still resolve to Fable 5 until gateways are configured for 5.1. **Claude Opus 5.5** (`claude-opus-5-5`, 2.1.280) is now the default Opus model — 1M context, $4/$20 per Mtok with $0.20 cache reads, cheaper per token than any previous Opus.
+
+Plan defaults moved accordingly: seat-based Enterprise defaults to Opus 5 (2.1.251), and Pro and Team Standard moved from Sonnet to Opus (2.1.280). **Bedrock, Vertex and Claude Platform on AWS default to Opus 4.8** (2.1.207) and do not track these first-party changes automatically — availability of Opus 5, 5.5 and Fable 5.1 on your provider and region is a separate question to check in your provider console. Sonnet 5's auto-compact window now uses its full 1M context (≈967K tokens, 2.1.247), and its $2/$10 pricing is the standard list price (2.1.243). New model controls: `ANTHROPIC_DEFAULT_MODEL` (2.1.236) sets the starting model while letting a `/model` pick persist, `modelPicker` (2.1.243) curates the picker with any id spelling including Bedrock ids, `maxEffortLevel` (2.1.267) caps effort on every provider, `/effort` is saved per model (2.1.251), and new `PreModelSwitch`/`PostModelSwitch` hooks (2.1.251) let you enforce the pin deterministically.
+
+### H.4 Plugins
+
+Covered in full at the end of Chapter 10. The short list: GitLab marketplaces (2.1.232), `archive` and `command` sources (2.1.224, 2.1.229), `--ignore-scripts` npm installs (2.1.275), Git LFS left as pointers (2.1.274), immediate activation so `/reload-plugins` is rarely needed (2.1.221, 2.1.268), `--json` on every plugin command (2.1.259, 2.1.268), `--accept-command <sha256>` (2.1.271), `claude plugin eval` (2.1.269), `--plugin-dir` pointing at a folder of plugins (2.1.265), owner wildcards in marketplace allow/block lists (2.1.223), reserved-name protection (2.1.280), and claude.ai account plugin sync with `syncClaudeAiPlugins: false` to opt out (2.1.275).
+
+### H.5 MCP
+
+Covered in full in Chapter 11. The behaviors most likely to bite: `type: "sdk"` entries skipped (2.1.274); `allowedMcpServers` scope change (2.1.259); v2 client default on Bedrock with `MCP_SDK_GENERATION=v1` / `MCP_PROTOCOL_NEGOTIATION=legacy` as opt-outs (2.1.274); description cap of 2,048 characters, adjustable via `CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH` (2.1.280). The fixes most likely to *help*: per-server `request_timeout_ms` honored (2.1.206), Streamable HTTP calls no longer cut at five minutes (2.1.274), legacy SSE fallback (2.1.265), and Claude being told when a server failed to connect on Bedrock (2.1.247). New knobs: `CLAUDE_CODE_MCP_STARTUP_WAIT_MS` (2.1.274) and the `managedMcpServers` managed setting (2.1.259).
+
+### H.6 Skills
+
+Covered in Chapter 8. Background-by-default forked skills with `background: false` (2.1.218); inline `` !`…` `` commands under auto mode follow default-mode rules (2.1.271); `disable-model-invocation` now a hard boundary (2.1.222); permissive boolean spellings (2.1.218); `/skill-doctor` (2.1.261); claude.ai account skill sync with `syncClaudeAiSkills: false` to opt out (2.1.275); project skills load in `--worktree` sessions even when untracked (fixed 2.1.277); `/cd` loads skills immediately (2.1.246). The Workflow tool's own prompt shrank from ~5.7k to ~1k tokens by moving its reference into a bundled `workflow-authoring` skill (2.1.248).
+
+### H.7 Hooks
+
+Covered in Chapter 13. New events: `PreModelSwitch`, `PostModelSwitch` (2.1.251) and `DirectoryAdded` (2.1.219). Semantic changes: `fork` SessionStart source (2.1.214), `dir/**` `if:` scoping (2.1.214), agent-type `PermissionRequest` hooks rejected (2.1.280). Fixes that matter for unattended runs: hook timeouts no longer read as user rejections (2.1.210), PreToolUse `ask` respected under auto mode (2.1.211), `PermissionRequest` fires in `--print` (2.1.268), SessionEnd timeout env honored (2.1.268), blocking Stop hooks keep the turn's reasoning (2.1.259), SubagentStop matcher no longer fires for empty agent types (2.1.275).
+
+### H.8 Agents, background work and workflows
+
+Covered in Chapter 18. `omitClaudeMd` and `experimental.cacheTtl` agent frontmatter (2.1.271, 2.1.248); `--append-subagent-system-prompt-file` (2.1.261); `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` (2.1.257); `--forward-subagent-text` for orchestrators parsing stream-json (2.1.211); workflow size guideline and `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` (2.1.219, 2.1.269, 2.1.271); `/goal` now retries with backoff or pauses and says why after API errors instead of silently stalling (fixed 2.1.269) and survives resume after compaction (fixed 2.1.274). Cross-session messaging (`SendMessage`/`ListAgents`) arrived for sessions on your machines (2.1.224) and on Bedrock, Vertex and Foundry (2.1.248); messages to a bypass-permissions session are held for approval (`crossSessionInbound`, 2.1.224), and relayed messages never carry user authority. Background-session management gained `claude attach`, `logs`, `stop`, `respawn` and `rm` (2.1.251), and `/status` shows whether a session is interactive, attached or unattended (2.1.221).
+
+### H.9 Settings, permissions and auto mode
+
+Covered in Chapters 15 and 19. The repository-scope restrictions in H.1 are the headline. Beyond them: `--permission-prompts none` for unattended hosts (2.1.259), `--restricted` (2.1.248), `permissions.blockReadsOutsideWorkingDirectories` (2.1.257), the Containment Escape auto-mode rule (2.1.257), per-command `allowed_domains` with sandboxing (2.1.271), `sandbox.network.strictAllowlist` (2.1.219), `sandbox.filesystem.disabled` (2.1.216), sandbox credential masking (`mode: "mask"`, `extract`, JWT and SigV4-aware options; 2.1.221, 2.1.224), `claude auto-mode reset` (2.1.212), and the server-side classifier default with its `/status` row (2.1.278). Two permission-rule changes were introduced and then reverted within days (Read-deny on Bash arguments, 2.1.259 → 2.1.260; Read/Edit-deny on un-analyzable lines, 2.1.268 → 2.1.273) — the lesson being that path deny rules are not a shell sandbox.
+
+### H.10 Operator notes for AWS Bedrock
+
+Most of the window's Bedrock-relevant changes are about parity with first-party sessions, and a few directly address failure modes that show up in long-running research and pipeline workloads.
+
+**Region and model ids.** `ANTHROPIC_BEDROCK_REGION_PREFIX` (2.1.224) lets you prefer a specific cross-region inference-profile prefix over the one derived from `AWS_REGION` — the direct fix for a deployment where a hard-coded `us.`-prefixed id fails in an EU region. Set it deliberately rather than relying on derivation, and keep `ANTHROPIC_DEFAULT_OPUS_MODEL` (and the Sonnet/Haiku equivalents) pointed at exact profile ids so subagents asking for `model: opus` resolve unambiguously (see the 2.1.274 fix in Chapter 18). The default model on Bedrock is Opus 4.8 (2.1.207). `/status` shows where the region came from (since 2.1.172).
+
+**Numbers in env vars.** Since 2.1.211, integer environment variables (timeouts, token budgets, retry counts) accept scientific notation and digit separators like `1e6` and `64_000`. On older builds those spellings did not parse as intended; if you ever set a timeout that way on a pre-2.1.211 build and saw it behave as zero, that is why — upgrade, or use plain digits.
+
+**Throttling and stalls.** `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (2.1.217) gives a runtime cap on concurrent subagents, the in-process complement to an external orchestrator's bounded concurrency. `CLAUDE_CODE_RETRY_WATCHDOG` (Appendix G) and the stream idle watchdog remain the retry controls. Hook timeouts no longer masquerade as user rejections (2.1.210), and `/goal` no longer stalls silently on API errors (2.1.269). Expired AWS credentials under a host app surface a re-authenticate error immediately instead of after ten generic retries (fixed 2.1.267), and 401/403s on Bedrock now name the credential to refresh rather than telling you to `/login` (fixed 2.1.273).
+
+**Parity changes.** Bedrock sessions now deliver environment, model and settings details as system-prompt attachments and keep the tool list byte-stable across a conversation (2.1.268), both of which improve prompt-cache hit rates on long sessions. The Bash sandbox instructions use first-party wording (2.1.277). `/model`, `/fast` and `/effort` apply immediately instead of queueing to the end of the turn (2.1.243). `/loop`, `/radio`, cross-session messaging and `SendMessage` are available on Bedrock (2.1.248, 2.1.251). Claude is told when an MCP server failed to connect (2.1.247). The v2 MCP client is the default (2.1.274), and auto mode's classifier runs server-side (2.1.278).
+
+**Not yet on Bedrock.** AGENTS.md fallback (2.1.277) is not available on Bedrock, Vertex or Foundry — keep a CLAUDE.md. `WebSearch` availability on your Bedrock deployment remains something to verify rather than assume; research agents that depend on it should be told explicitly what to do when it is absent.
+
+### H.11 Observability additions
+
+`/cost` prompt-cache diagnostics with miss causes (2.1.251, 2.1.260, 2.1.280); `/status` Organization policy, Skipped sources, session kind and Auto mode server lines (2.1.221–2.1.278); `/skill-doctor` (2.1.261); `/usage` loop breakdown (2.1.243). On the OpenTelemetry side: `OTEL_LOG_TOOL_DETAILS=1` now attaches real agent, skill, plugin and MCP server names to cost and token metrics (2.1.273) — the most useful single change for attributing spend in a multi-agent pipeline — plus `effort` on `claude_code.llm_request` spans (2.1.274), `claude_code.managed_settings_resolved` (2.1.274), repository attributes via `OTEL_METRICS_INCLUDE_REPOSITORY` (2.1.269), message-level correlation attributes (2.1.214), hook output sizes on `hook_execution_complete` (2.1.280), and a startup warning when `otelHeadersHelper` fails so a silently non-exporting session gets noticed (2.1.275).
 
 ---
 
